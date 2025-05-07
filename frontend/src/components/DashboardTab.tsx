@@ -49,7 +49,7 @@ export default function DashboardTab({ trades, balances, isTestMode }: Dashboard
   
   return (
     <div className="container mx-auto py-6">
-      <h2 className="text-2xl font-bold mb-6">Dashboard {isTestMode ? '(Test Mode)' : ''}</h2>
+      <h2 className="text-2xl font-bold mb-6 md:text-left text-center">Live Stats {isTestMode ? '(Test Mode)' : ''}</h2>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <Card>
@@ -148,7 +148,8 @@ export default function DashboardTab({ trades, balances, isTestMode }: Dashboard
             <CardTitle>Exchange Balances</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            {/* Desktop view - horizontal table */}
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-[#4A4A4F]">
@@ -172,6 +173,28 @@ export default function DashboardTab({ trades, balances, isTestMode }: Dashboard
                 </tbody>
               </table>
             </div>
+            
+            {/* Mobile view - vertical cards */}
+            <div className="md:hidden space-y-4">
+              {balances.map((balance) => (
+                <div key={balance.exchange} className="p-3 border border-[#4A4A4F] rounded-md">
+                  <div className="font-medium text-white mb-2">{balance.exchange}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-gray-400">BTC:</div>
+                    <div className="text-right text-white">{balance.balances.BTC?.total.toFixed(6) || '0.000000'}</div>
+                    <div className="text-gray-400">ETH:</div>
+                    <div className="text-right text-white">{balance.balances.ETH?.total.toFixed(6) || '0.000000'}</div>
+                    <div className="text-gray-400">SOL:</div>
+                    <div className="text-right text-white">{balance.balances.SOL?.total.toFixed(6) || '0.000000'}</div>
+                    <div className="text-gray-400">USDT:</div>
+                    <div className="text-right text-white">{balance.balances.USDT?.total.toFixed(2) || '0.00'}</div>
+                  </div>
+                </div>
+              ))}
+              {balances.length === 0 && (
+                <div className="text-center py-4 text-white">No balances available</div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -181,7 +204,8 @@ export default function DashboardTab({ trades, balances, isTestMode }: Dashboard
           <CardTitle>Live Trade Feed</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Desktop view - horizontal table */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-[#4A4A4F]">
@@ -217,6 +241,41 @@ export default function DashboardTab({ trades, balances, isTestMode }: Dashboard
                 )}
               </tbody>
             </table>
+          </div>
+          
+          {/* Mobile view - vertical cards */}
+          <div className="md:hidden space-y-4">
+            {trades.slice(0, 10).map((trade) => (
+              <div key={trade.id} className="p-3 border border-[#4A4A4F] rounded-md">
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="text-gray-400">Time:</div>
+                  <div className="text-white">{formatDistanceToNow(new Date(trade.timestamp))} ago</div>
+                  <div className="text-gray-400">Pair:</div>
+                  <div className="text-white">{trade.buy_trade.symbol}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="text-gray-400">Buy Exchange:</div>
+                  <div className="text-white">{trade.buy_trade.exchange}</div>
+                  <div className="text-gray-400">Sell Exchange:</div>
+                  <div className="text-white">{trade.sell_trade.exchange}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-gray-400">Profit %:</div>
+                  <div className={`text-right ${trade.profit_percentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {trade.profit_percentage.toFixed(2)}%
+                  </div>
+                  <div className="text-gray-400">PnL:</div>
+                  <div className={`text-right ${trade.profit > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    ${trade.profit.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {trades.length === 0 && (
+              <div className="py-4 text-center text-white">
+                No trades executed yet
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

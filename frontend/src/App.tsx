@@ -148,7 +148,7 @@ function App() {
         </div>
       </header>
       
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
         {error && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
@@ -157,25 +157,25 @@ function App() {
         )}
         
         <div className="w-full">
-          <div className="border-b border-gray-700 mb-6">
+          <div className="border-b border-gray-700 mb-6 md:block hidden">
             <div className="flex space-x-4">
               <button 
                 className={activeTab === 'connect' ? "py-2 px-4 border-b-2 border-orange-500 text-white" : "py-2 px-4 text-gray-400"}
                 onClick={() => setActiveTab('connect')}
               >
-                Connect & Run
+                Start
               </button>
               <button 
                 className={activeTab === 'dashboard' ? "py-2 px-4 border-b-2 border-orange-500 text-white" : "py-2 px-4 text-gray-400"}
                 onClick={() => setActiveTab('dashboard')}
               >
-                Dashboard
+                Stats
               </button>
               <button 
                 className={activeTab === 'test' ? "py-2 px-4 border-b-2 border-orange-500 text-white" : "py-2 px-4 text-gray-400"}
                 onClick={() => setActiveTab('test')}
               >
-                Test Mode
+                Simulate
               </button>
             </div>
           </div>
@@ -207,9 +207,33 @@ function App() {
         </div>
       </main>
       
+      {/* Mobile Bottom Navigation */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 z-10">
+        <div className="flex justify-around">
+          <button 
+            className={`py-3 px-4 flex flex-col items-center ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
+            onClick={() => setActiveTab('connect')}
+          >
+            <span className="text-sm">Start</span>
+          </button>
+          <button 
+            className={`py-3 px-4 flex flex-col items-center ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <span className="text-sm">Stats</span>
+          </button>
+          <button 
+            className={`py-3 px-4 flex flex-col items-center ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
+            onClick={() => setActiveTab('test')}
+          >
+            <span className="text-sm">Simulate</span>
+          </button>
+        </div>
+      </div>
+      
       <footer className="border-t border-gray-700 py-4 text-center text-sm text-gray-400">
         <div className="container mx-auto px-4">
-          <p>© {new Date().getFullYear()} Crypto Arbitrage Bot - All rights reserved</p>
+          <p>© {new Date().getFullYear()} Quantivest - All rights reserved</p>
         </div>
       </footer>
     </div>
