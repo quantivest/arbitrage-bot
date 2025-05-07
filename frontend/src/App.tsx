@@ -214,7 +214,7 @@ function App() {
             className={`py-4 px-5 flex flex-col items-center ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('connect')}
           >
-            <span className="text-base font-medium">Connect & Run</span>
+            <span className="text-base font-medium">Start</span>
           </button>
           <button 
             className={`py-4 px-5 flex flex-col items-center ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
@@ -226,7 +226,7 @@ function App() {
             className={`py-4 px-5 flex flex-col items-center ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('test')}
           >
-            <span className="text-base font-medium">Test Mode</span>
+            <span className="text-base font-medium">Simulate</span>
           </button>
         </div>
       </div>
