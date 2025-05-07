@@ -209,21 +209,21 @@ function App() {
       
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 z-10">
-        <div className="flex justify-around">
+        <div className="flex justify-between items-center px-4">
           <button 
-            className={`py-4 px-5 flex flex-col items-center ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
+            className={`py-6 px-6 flex flex-col items-center justify-center flex-1 ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('connect')}
           >
             <span className="text-base font-medium">Start</span>
           </button>
           <button 
-            className={`py-4 px-5 flex flex-col items-center ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
+            className={`py-6 px-6 flex flex-col items-center justify-center flex-1 ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('dashboard')}
           >
             <span className="text-base font-medium">Stats</span>
           </button>
           <button 
-            className={`py-4 px-5 flex flex-col items-center ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
+            className={`py-6 px-6 flex flex-col items-center justify-center flex-1 ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('test')}
           >
             <span className="text-base font-medium">Simulate</span>

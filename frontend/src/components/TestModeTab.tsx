@@ -130,7 +130,7 @@ export default function TestModeTab({
                   <span className="text-sm">▼</span>
                 </Button>
                 
-                <div id="mobile-sliders" className="space-y-6">
+                <div id="mobile-sliders" className="space-y-6 hidden">
                   <div className="space-y-4">
                     <Label>BTC/USDT Capital: {formatSliderValue(btcCapital)}</Label>
                     <Slider
