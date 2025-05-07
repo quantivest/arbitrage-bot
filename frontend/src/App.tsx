@@ -211,22 +211,22 @@ function App() {
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 z-10">
         <div className="flex justify-around">
           <button 
-            className={`py-3 px-4 flex flex-col items-center ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
+            className={`py-4 px-5 flex flex-col items-center ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('connect')}
           >
-            <span className="text-sm">Start</span>
+            <span className="text-base font-medium">Connect & Run</span>
           </button>
           <button 
-            className={`py-3 px-4 flex flex-col items-center ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
+            className={`py-4 px-5 flex flex-col items-center ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('dashboard')}
           >
-            <span className="text-sm">Stats</span>
+            <span className="text-base font-medium">Stats</span>
           </button>
           <button 
-            className={`py-3 px-4 flex flex-col items-center ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
+            className={`py-4 px-5 flex flex-col items-center ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('test')}
           >
-            <span className="text-sm">Simulate</span>
+            <span className="text-base font-medium">Test Mode</span>
           </button>
         </div>
       </div>

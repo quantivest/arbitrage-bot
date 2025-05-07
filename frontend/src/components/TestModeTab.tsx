@@ -103,7 +103,7 @@ export default function TestModeTab({
   
   return (
     <div className="container mx-auto py-6">
-      <h2 className="text-2xl font-bold mb-6 md:text-left text-center">Simulate</h2>
+      <h2 className="text-2xl font-bold mb-6 md:text-left text-center">Test Mode</h2>
       
       {error && (
         <Alert variant="destructive" className="mb-4">
@@ -123,7 +123,7 @@ export default function TestModeTab({
               <div className="md:hidden">
                 <Button
                   variant="outline"
-                  className="w-full flex justify-between items-center mb-4"
+                  className="w-full flex justify-between items-center mb-4 bg-black text-gray-400 border-gray-700"
                   onClick={() => document.getElementById('mobile-sliders')?.classList.toggle('hidden')}
                 >
                   <span className="font-medium">Sliders</span>
