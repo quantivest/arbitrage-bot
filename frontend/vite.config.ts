@@ -25,7 +25,7 @@ export default defineConfig({
             type: 'image/png'
           },
           {
-            src: '/arbitrage-bot-frontend/icons/arbitrage-bot-icon-512.PNG',
+            src: '/arbitrage-bot-frontend/icons/arbitrage-bot-icon-512.png',
             sizes: '512x512',
             type: 'image/png'
           }
