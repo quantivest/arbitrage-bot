@@ -103,7 +103,7 @@ export default function TestModeTab({
   
   return (
     <div className="container mx-auto py-6">
-      <h2 className="text-2xl font-bold mb-6">Test Mode</h2>
+      <h2 className="text-2xl font-bold mb-6 md:text-left text-center">Simulate</h2>
       
       {error && (
         <Alert variant="destructive" className="mb-4">
@@ -119,52 +119,117 @@ export default function TestModeTab({
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              <div className="space-y-4">
-                <Label>BTC/USDT Capital: {formatSliderValue(btcCapital)}</Label>
-                <Slider
-                  value={[btcCapital]}
-                  min={10}
-                  max={1000000}
-                  step={10}
-                  onValueChange={(value) => setBtcCapital(value[0])}
-                  disabled={botStatus.test_mode}
-                />
+              {/* Mobile collapsible slider section */}
+              <div className="md:hidden">
+                <Button
+                  variant="outline"
+                  className="w-full flex justify-between items-center mb-4"
+                  onClick={() => document.getElementById('mobile-sliders')?.classList.toggle('hidden')}
+                >
+                  <span className="font-medium">Sliders</span>
+                  <span className="text-sm">▼</span>
+                </Button>
+                
+                <div id="mobile-sliders" className="space-y-6">
+                  <div className="space-y-4">
+                    <Label>BTC/USDT Capital: {formatSliderValue(btcCapital)}</Label>
+                    <Slider
+                      value={[btcCapital]}
+                      min={10}
+                      max={1000000}
+                      step={10}
+                      onValueChange={(value) => setBtcCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <Label>ETH/USDT Capital: {formatSliderValue(ethCapital)}</Label>
+                    <Slider
+                      value={[ethCapital]}
+                      min={10}
+                      max={1000000}
+                      step={10}
+                      onValueChange={(value) => setEthCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <Label>SOL/USDT Capital: {formatSliderValue(solCapital)}</Label>
+                    <Slider
+                      value={[solCapital]}
+                      min={10}
+                      max={1000000}
+                      step={10}
+                      onValueChange={(value) => setSolCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <Label>Buffer Percentage: {bufferPercentage.toFixed(2)}%</Label>
+                    <Slider
+                      value={[bufferPercentage]}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onValueChange={(value) => setBufferPercentage(value[0])}
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
+                </div>
               </div>
               
-              <div className="space-y-4">
-                <Label>ETH/USDT Capital: {formatSliderValue(ethCapital)}</Label>
-                <Slider
-                  value={[ethCapital]}
-                  min={10}
-                  max={1000000}
-                  step={10}
-                  onValueChange={(value) => setEthCapital(value[0])}
-                  disabled={botStatus.test_mode}
-                />
-              </div>
-              
-              <div className="space-y-4">
-                <Label>SOL/USDT Capital: {formatSliderValue(solCapital)}</Label>
-                <Slider
-                  value={[solCapital]}
-                  min={10}
-                  max={1000000}
-                  step={10}
-                  onValueChange={(value) => setSolCapital(value[0])}
-                  disabled={botStatus.test_mode}
-                />
-              </div>
-              
-              <div className="space-y-4">
-                <Label>Buffer Percentage: {bufferPercentage.toFixed(2)}%</Label>
-                <Slider
-                  value={[bufferPercentage]}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  onValueChange={(value) => setBufferPercentage(value[0])}
-                  disabled={botStatus.test_mode}
-                />
+              {/* Desktop slider section (non-collapsible) */}
+              <div className="hidden md:block space-y-6">
+                <div className="space-y-4">
+                  <Label>BTC/USDT Capital: {formatSliderValue(btcCapital)}</Label>
+                  <Slider
+                    value={[btcCapital]}
+                    min={10}
+                    max={1000000}
+                    step={10}
+                    onValueChange={(value) => setBtcCapital(value[0])}
+                    disabled={botStatus.test_mode}
+                  />
+                </div>
+                
+                <div className="space-y-4">
+                  <Label>ETH/USDT Capital: {formatSliderValue(ethCapital)}</Label>
+                  <Slider
+                    value={[ethCapital]}
+                    min={10}
+                    max={1000000}
+                    step={10}
+                    onValueChange={(value) => setEthCapital(value[0])}
+                    disabled={botStatus.test_mode}
+                  />
+                </div>
+                
+                <div className="space-y-4">
+                  <Label>SOL/USDT Capital: {formatSliderValue(solCapital)}</Label>
+                  <Slider
+                    value={[solCapital]}
+                    min={10}
+                    max={1000000}
+                    step={10}
+                    onValueChange={(value) => setSolCapital(value[0])}
+                    disabled={botStatus.test_mode}
+                  />
+                </div>
+                
+                <div className="space-y-4">
+                  <Label>Buffer Percentage: {bufferPercentage.toFixed(2)}%</Label>
+                  <Slider
+                    value={[bufferPercentage]}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    onValueChange={(value) => setBufferPercentage(value[0])}
+                    disabled={botStatus.test_mode}
+                  />
+                </div>
               </div>
               
               <div className="space-y-4">
@@ -268,7 +333,8 @@ export default function TestModeTab({
           <CardTitle>Simulated Trade Logs</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Desktop view - horizontal table */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-[#4A4A4F]">
@@ -306,6 +372,43 @@ export default function TestModeTab({
                 )}
               </tbody>
             </table>
+          </div>
+          
+          {/* Mobile view - vertical cards */}
+          <div className="md:hidden space-y-4">
+            {testTrades.slice(0, 10).map((trade) => (
+              <div key={trade.id} className="p-3 border border-[#4A4A4F] rounded-md">
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="text-gray-400">Time:</div>
+                  <div className="text-white">{new Date(trade.timestamp).toLocaleTimeString()}</div>
+                  <div className="text-gray-400">Pair:</div>
+                  <div className="text-white">{trade.buy_trade.symbol}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="text-gray-400">Buy Exchange:</div>
+                  <div className="text-white">{trade.buy_trade.exchange}</div>
+                  <div className="text-gray-400">Sell Exchange:</div>
+                  <div className="text-white">{trade.sell_trade.exchange}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-gray-400">Spread %:</div>
+                  <div className={`text-right ${trade.profit_percentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {trade.profit_percentage.toFixed(2)}%
+                  </div>
+                  <div className="text-gray-400">Amount:</div>
+                  <div className="text-right text-white">{trade.buy_trade.amount.toFixed(6)}</div>
+                  <div className="text-gray-400">Profit:</div>
+                  <div className={`text-right ${trade.profit > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    ${trade.profit.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {testTrades.length === 0 && (
+              <div className="py-4 text-center text-white">
+                No test trades executed yet
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

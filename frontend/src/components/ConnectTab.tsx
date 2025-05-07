@@ -103,7 +103,7 @@ export default function ConnectTab({ botStatus, onBotStatusChange }: ConnectTabP
 
   return (
     <div className="container mx-auto py-6">
-      <h2 className="text-2xl font-bold mb-6">Connect & Run</h2>
+      <h2 className="text-2xl font-bold mb-6 md:text-left text-center">Start</h2>
       
       {error && (
         <Alert variant="destructive" className="mb-4">
