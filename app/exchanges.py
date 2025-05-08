@@ -1,4 +1,4 @@
-import ccxt
+import ccxt.async_support as ccxt
 import asyncio
 import time
 from typing import Dict, List, Optional, Tuple
