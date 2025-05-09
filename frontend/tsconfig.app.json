@@ -28,9 +28,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "noImplicitAny": false,
-    "suppressImplicitAnyIndexErrors": true,
     "skipDefaultLibCheck": true,
     "noPropertyAccessFromIndexSignature": false,
+    "ignoreDeprecations": "5.0",
     
     /* Fix for JSX elements */
     "jsxImportSource": "react"
