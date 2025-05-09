@@ -3,7 +3,7 @@ import ConnectTab from './components/ConnectTab';
 import DashboardTab from './components/DashboardTab';
 import TestModeTab from './components/TestModeTab';
 import { exchangeApi, botApi, connectWebSocket } from './api';
-import { ArbitrageTrade, BotStatus, ExchangeBalance, TestModeSettings, AlertType } from './types';
+import { ArbitrageTrade, BotStatus, ExchangeBalance, TestModeSettings } from './types';
 import "./index.css";
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
@@ -14,7 +14,10 @@ function App() {
     running: false,
     test_mode: false,
     connected_exchanges: [],
-    last_update: new Date().toISOString()
+    last_update: new Date().toISOString(),
+    alerts: [],
+    trades_blocked: 0,
+    failsafes_triggered: 0
   });
   const [supportedExchanges, setSupportedExchanges] = useState<string[]>([]);
   const [balances, setBalances] = useState<ExchangeBalance[]>([]);
@@ -65,7 +68,7 @@ function App() {
         const simulatedTrades = data.recent_trades.filter((trade: ArbitrageTrade) => trade.is_test);
         
         if (liveTrades.length > 0) {
-          setTrades(prevTrades => {
+          setTrades((prevTrades: ArbitrageTrade[]) => {
             const existingIds = new Set(prevTrades.map((t: ArbitrageTrade) => t.id));
             const newTrades = liveTrades.filter((t: ArbitrageTrade) => !existingIds.has(t.id));
             return [...newTrades, ...prevTrades].slice(0, 100); // Keep last 100 trades
@@ -73,7 +76,7 @@ function App() {
         }
         
         if (simulatedTrades.length > 0) {
-          setTestTrades(prevTrades => {
+          setTestTrades((prevTrades: ArbitrageTrade[]) => {
             const existingIds = new Set(prevTrades.map((t: ArbitrageTrade) => t.id));
             const newTrades = simulatedTrades.filter((t: ArbitrageTrade) => !existingIds.has(t.id));
             return [...newTrades, ...prevTrades].slice(0, 100); // Keep last 100 trades
@@ -108,13 +111,13 @@ function App() {
   }, [botStatus.connected_exchanges]);
   
   const handleBotStatusChange = async (running: boolean) => {
-    setBotStatus(prev => ({ ...prev, running }));
+    setBotStatus((prev: BotStatus) => ({ ...prev, running }));
   };
   
   const handleStartTest = async (settings: TestModeSettings) => {
     try {
       await botApi.startBot(true, settings);
-      setBotStatus(prev => ({ ...prev, running: true, test_mode: true }));
+      setBotStatus((prev: BotStatus) => ({ ...prev, running: true, test_mode: true }));
       setActiveTab('dashboard');
     } catch (error: any) {
       setError(error.message || 'Failed to start test mode');
@@ -124,7 +127,7 @@ function App() {
   const handleStopTest = async () => {
     try {
       await botApi.stopBot();
-      setBotStatus(prev => ({ ...prev, running: false, test_mode: false }));
+      setBotStatus((prev: BotStatus) => ({ ...prev, running: false, test_mode: false }));
     } catch (error: any) {
       setError(error.message || 'Failed to stop test mode');
     }
