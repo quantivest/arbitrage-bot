@@ -18,6 +18,16 @@ class ExchangeManager:
     async def connect_exchange(self, exchange_id: str, api_key: str, api_secret: str, additional_params: Optional[Dict] = None) -> bool:
         """Connect to an exchange with API credentials."""
         try:
+            api_key = api_key.strip() if api_key else ""
+            api_secret = api_secret.strip() if api_secret else ""
+            
+            key_was_trimmed = False
+            if exchange_id == "gemini" and api_key.startswith("account-"):
+                original_key = api_key
+                api_key = api_key[8:]  # Remove "account-" prefix
+                key_was_trimmed = True
+                print(f"Gemini API key auto-trimmed from 'account-XXXX' format to 'XXXX' format")
+            
             if exchange_id not in settings.EXCHANGE_API_KEYS:
                 settings.EXCHANGE_API_KEYS[exchange_id] = {}
             
@@ -28,11 +38,18 @@ class ExchangeManager:
                 settings.EXCHANGE_API_KEYS[exchange_id].update(additional_params)
             
             exchange_class = getattr(ccxt, exchange_id)
-            exchange = exchange_class({
+            exchange_params = {
                 'apiKey': api_key,
                 'secret': api_secret,
-                **(additional_params or {})
-            })
+            }
+            
+            if exchange_id == "gemini":
+                exchange_params['urls'] = {'api': 'https://api.gemini.com'}
+            
+            if additional_params:
+                exchange_params.update(additional_params)
+                
+            exchange = exchange_class(exchange_params)
             
             await self._test_connection(exchange)
             
@@ -42,7 +59,12 @@ class ExchangeManager:
             
             return True
         except Exception as e:
-            print(f"Error connecting to {exchange_id}: {str(e)}")
+            if exchange_id == "gemini":
+                masked_key = "****" + api_key[-4:] if len(api_key) >= 4 else "****"
+                print(f"Error connecting to Gemini: API key used: {masked_key}, Key was trimmed: {key_was_trimmed}")
+                print(f"Full Gemini error: {str(e)}")
+            else:
+                print(f"Error connecting to {exchange_id}: {str(e)}")
             return False
     
     async def _test_connection(self, exchange) -> bool:
