@@ -14,7 +14,10 @@ function App() {
     running: false,
     test_mode: false,
     connected_exchanges: [],
-    last_update: new Date().toISOString()
+    last_update: new Date().toISOString(),
+    alerts: [],
+    trades_blocked: 0,
+    failsafes_triggered: 0
   });
   const [supportedExchanges, setSupportedExchanges] = useState<string[]>([]);
   const [balances, setBalances] = useState<ExchangeBalance[]>([]);
