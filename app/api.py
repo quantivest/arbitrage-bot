@@ -23,7 +23,7 @@ async def broadcast_updates():
             if active_connections:
                 connected_exchanges = list(exchange_manager.exchanges.keys())
                 
-                print(f"Broadcasting update: Connected exchanges: {connected_exchanges}")
+                print(f"Broadcasting update: Connected exchanges: {connected_exchanges}, Bot running: {arbitrage_bot.running}, Test mode: {arbitrage_bot.test_mode}")
                 
                 status = BotStatus(
                     running=arbitrage_bot.running,
@@ -45,17 +45,19 @@ async def broadcast_updates():
                 
                 print(f"Broadcasting to {len(active_connections)} active WebSocket connections")
                 
-                for connection in active_connections:
+                connections_copy = active_connections.copy()
+                for connection in connections_copy:
                     try:
                         await connection.send_text(json.dumps(data))
                     except Exception as e:
                         print(f"Error sending update to client: {str(e)}")
                         if connection in active_connections:
                             active_connections.remove(connection)
+                            print(f"Removed dead connection. Remaining connections: {len(active_connections)}")
         except Exception as e:
             print(f"Error in broadcast loop: {str(e)}")
         
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
 @router.on_event("startup")
 async def startup_event():
@@ -64,13 +66,17 @@ async def startup_event():
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    print(f"New WebSocket connection accepted. Total connections: {len(active_connections) + 1}")
     active_connections.append(websocket)
     
     try:
+        connected_exchanges = list(exchange_manager.exchanges.keys())
+        print(f"Sending initial status. Connected exchanges: {connected_exchanges}")
+        
         status = BotStatus(
             running=arbitrage_bot.running,
             test_mode=arbitrage_bot.test_mode,
-            connected_exchanges=list(exchange_manager.exchanges.keys()),
+            connected_exchanges=connected_exchanges,
             last_update=datetime.now(),
             failsafe_status=arbitrage_bot.get_failsafe_status(),
             alerts=arbitrage_bot.get_alerts(10),
@@ -86,6 +92,7 @@ async def websocket_endpoint(websocket: WebSocket):
         }
         
         await websocket.send_text(json.dumps(data))
+        print(f"Initial status sent successfully")
     except Exception as e:
         print(f"Error sending initial status: {str(e)}")
     
@@ -95,15 +102,20 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 data = json.loads(message)
                 if data.get("type") == "ping":
+                    print(f"Received ping, sending pong")
                     await websocket.send_text(json.dumps({"type": "pong", "timestamp": datetime.now().isoformat()}))
             except json.JSONDecodeError:
                 pass  # Ignore invalid JSON
-    except WebSocketDisconnect:
-        active_connections.remove(websocket)
+    except WebSocketDisconnect as e:
+        print(f"WebSocket disconnected: {str(e)}")
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+        print(f"Connection removed. Remaining connections: {len(active_connections)}")
     except Exception as e:
         print(f"WebSocket error: {str(e)}")
         if websocket in active_connections:
             active_connections.remove(websocket)
+            print(f"Connection removed due to error. Remaining connections: {len(active_connections)}")
 
 @router.get("/exchanges")
 async def get_supported_exchanges():
@@ -179,9 +191,11 @@ async def start_bot(test_mode: bool = False, test_settings: Optional[TestModeSet
     if len(exchange_manager.exchanges) < 2:
         raise HTTPException(status_code=400, detail="At least 2 exchanges must be connected")
     
-    await exchange_manager.fetch_balances()
+    asyncio.create_task(exchange_manager.fetch_balances())
     
     arbitrage_bot.start(test_mode, test_settings.dict() if test_settings else None)
+    
+    print(f"Bot started successfully in {'test' if test_mode else 'live'} mode")
     
     return {"status": "started", "test_mode": test_mode}
 

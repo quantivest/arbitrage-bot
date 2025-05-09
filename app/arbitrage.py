@@ -33,16 +33,27 @@ class ArbitrageBot:
     
     def start(self, test_mode: bool = False, test_settings: Dict = None):
         """Start the arbitrage bot."""
+        print(f"Starting arbitrage bot in {'test' if test_mode else 'live'} mode")
+        
+        if self.running:
+            print("Bot was already running, resetting state")
+            self.stop()
+        
         self.running = True
         self.test_mode = test_mode
         
         if test_mode and test_settings:
+            print(f"Initializing test balances with settings: {test_settings}")
             self._initialize_test_balances(test_settings)
             
             if 'buffer_percentage' in test_settings:
                 self.buffer_percentage = test_settings['buffer_percentage']
+                print(f"Set buffer percentage to {self.buffer_percentage}")
         
-        asyncio.create_task(self._main_loop())
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._main_loop())
+        
+        print(f"Bot started successfully in {'test' if test_mode else 'live'} mode with {len(settings.TRADING_PAIRS)} trading pairs")
     
     def stop(self):
         """Stop the arbitrage bot."""

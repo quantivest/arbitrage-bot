@@ -88,15 +88,23 @@ class ExchangeManager:
         results = []
         
         exchanges_to_fetch = [exchange_id] if exchange_id else self.exchanges.keys()
+        print(f"Fetching balances for exchanges: {exchanges_to_fetch}")
+        
+        assets = set(['USDT'])  # Always include USDT
+        for pair in settings.TRADING_PAIRS:
+            base, quote = pair.split('/')
+            assets.add(base)
+            assets.add(quote)
         
         for ex_id in exchanges_to_fetch:
             if ex_id in self.exchanges:
                 try:
+                    print(f"Fetching balance for {ex_id}...")
                     exchange = self.exchanges[ex_id]
                     balance_data = await exchange.fetch_balance()
                     
                     balances = {}
-                    for asset in ['BTC', 'ETH', 'SOL', 'USDT']:
+                    for asset in assets:
                         if asset in balance_data:
                             balances[asset] = Balance(
                                 free=float(balance_data[asset]['free']),
@@ -109,6 +117,7 @@ class ExchangeManager:
                     exchange_balance = ExchangeBalance(exchange=ex_id, balances=balances)
                     self.exchange_balances[ex_id] = exchange_balance
                     results.append(exchange_balance)
+                    print(f"Successfully fetched balance for {ex_id}")
                 except Exception as e:
                     print(f"Error fetching balance from {ex_id}: {str(e)}")
         
