@@ -2,8 +2,8 @@ import asyncio
 import time
 import uuid
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
-from .models import ArbitrageOpportunity, ArbitrageTrade, Trade, OrderBook
+from datetime import datetime, timedelta
+from .models import ArbitrageOpportunity, ArbitrageTrade, Trade, OrderBook, AlertType, FailsafeStatus
 from .exchanges import exchange_manager
 from .config import settings
 
@@ -17,6 +17,19 @@ class ArbitrageBot:
         self.trades = []
         self.test_balances = {}  # For test mode
         self.buffer_percentage = settings.BUFFER_PERCENTAGE
+        self.failsafe_status = FailsafeStatus(
+            disabled_pairs={},
+            disabled_exchanges={},
+            global_halt=False,
+            global_halt_timestamp=None,
+            historical_high_balance={},
+            pair_failure_counts={},
+            exchange_failure_counts={}
+        )
+        self.alerts = []
+        self.trades_blocked = 0
+        self.failsafes_triggered = 0
+        self.max_trade_amount = 750.0  # Hard cap of $750 per trade leg
     
     def start(self, test_mode: bool = False, test_settings: Dict = None):
         """Start the arbitrage bot."""
@@ -93,14 +106,49 @@ class ArbitrageBot:
     
     async def _scan_arbitrage_opportunities(self, pair: str, exchanges: List[str]):
         """Scan for arbitrage opportunities for a specific pair across exchanges."""
+        if pair in self.failsafe_status.disabled_pairs:
+            disabled_time = datetime.fromisoformat(self.failsafe_status.disabled_pairs[pair])
+            if datetime.now() - disabled_time > timedelta(minutes=5):
+                del self.failsafe_status.disabled_pairs[pair]
+                self.alerts.append(AlertType(
+                    type="pair_disabled",
+                    message=f"Pair {pair} automatically reactivated after 5-minute timeout",
+                    timestamp=datetime.now(),
+                    entity=pair,
+                    can_reactivate=False
+                ))
+            else:
+                return
+        
         order_books = {}
         
         for exchange in exchanges:
+            if exchange in self.failsafe_status.disabled_exchanges:
+                disabled_time = datetime.fromisoformat(self.failsafe_status.disabled_exchanges[exchange])
+                if datetime.now() - disabled_time > timedelta(minutes=5):
+                    del self.failsafe_status.disabled_exchanges[exchange]
+                    self.alerts.append(AlertType(
+                        type="exchange_disabled",
+                        message=f"Exchange {exchange} automatically reactivated after 5-minute timeout",
+                        timestamp=datetime.now(),
+                        entity=exchange,
+                        can_reactivate=False
+                    ))
+                else:
+                    continue
+            
             order_book = await exchange_manager.fetch_order_book(exchange, pair)
             if order_book:
+                book_time = datetime.fromisoformat(order_book.timestamp)
+                if datetime.now() - book_time > timedelta(seconds=2):
+                    continue
+                
                 order_books[exchange] = order_book
         
         if len(order_books) < 2:
+            return
+        
+        if self.failsafe_status.global_halt:
             return
         
         for buy_exchange in exchanges:
@@ -190,29 +238,65 @@ class ArbitrageBot:
         if not self.running:
             return
         
+        if opportunity.symbol in self.failsafe_status.disabled_pairs:
+            self.trades_blocked += 1
+            return
+        
+        if (opportunity.buy_exchange in self.failsafe_status.disabled_exchanges or 
+            opportunity.sell_exchange in self.failsafe_status.disabled_exchanges):
+            self.trades_blocked += 1
+            return
+        
+        if self.failsafe_status.global_halt:
+            self.trades_blocked += 1
+            return
+        
+        trade_amount = opportunity.max_trade_amount
+        if not self.test_mode:
+            trade_amount = min(trade_amount, self.max_trade_amount / opportunity.buy_price)
+        
+        buy_fee = exchange_manager.get_taker_fee(opportunity.buy_exchange, opportunity.symbol)
+        sell_fee = exchange_manager.get_taker_fee(opportunity.sell_exchange, opportunity.symbol)
+        
+        buy_order_book = await exchange_manager.fetch_order_book(opportunity.buy_exchange, opportunity.symbol)
+        sell_order_book = await exchange_manager.fetch_order_book(opportunity.sell_exchange, opportunity.symbol)
+        
+        if not buy_order_book or not sell_order_book:
+            return
+        
+        buy_book_time = datetime.fromisoformat(buy_order_book.timestamp)
+        sell_book_time = datetime.fromisoformat(sell_order_book.timestamp)
+        if (datetime.now() - buy_book_time > timedelta(seconds=2) or 
+            datetime.now() - sell_book_time > timedelta(seconds=2)):
+            return
+        
+        current_buy_price = buy_order_book.asks[0].price if buy_order_book.asks else None
+        current_sell_price = sell_order_book.bids[0].price if sell_order_book.bids else None
+        
+        if not current_buy_price or not current_sell_price:
+            return
+        
+        current_spread = (current_sell_price - current_buy_price) / current_buy_price
+        buy_slippage = self._calculate_slippage(buy_order_book.asks, 'buy')
+        sell_slippage = self._calculate_slippage(sell_order_book.bids, 'sell')
+        total_cost = buy_fee + sell_fee + buy_slippage + sell_slippage + self.buffer_percentage
+        
+        if current_spread <= total_cost:
+            self.trades_blocked += 1
+            return
+        
         try:
             buy_order = await exchange_manager.execute_trade(
                 opportunity.buy_exchange,
                 opportunity.symbol,
                 'buy',
-                opportunity.max_trade_amount,
-                opportunity.buy_price,
+                trade_amount,
+                current_buy_price,
                 self.test_mode
             )
             
             if not buy_order:
-                return
-            
-            sell_order = await exchange_manager.execute_trade(
-                opportunity.sell_exchange,
-                opportunity.symbol,
-                'sell',
-                opportunity.max_trade_amount,
-                opportunity.sell_price,
-                self.test_mode
-            )
-            
-            if not sell_order:
+                self._increment_failure_count(opportunity.buy_exchange, opportunity.symbol)
                 return
             
             buy_trade = Trade(
@@ -227,6 +311,46 @@ class ArbitrageBot:
                 timestamp=datetime.fromtimestamp(buy_order['timestamp'] / 1000) if 'timestamp' in buy_order else datetime.now(),
                 is_test=self.test_mode
             )
+            
+            sell_order = await exchange_manager.execute_trade(
+                opportunity.sell_exchange,
+                opportunity.symbol,
+                'sell',
+                trade_amount,
+                current_sell_price,
+                self.test_mode
+            )
+            
+            if not sell_order:
+                buy_time = datetime.fromisoformat(str(buy_trade.timestamp))
+                if datetime.now() - buy_time <= timedelta(seconds=2):
+                    latest_sell_book = await exchange_manager.fetch_order_book(opportunity.sell_exchange, opportunity.symbol)
+                    if latest_sell_book and latest_sell_book.bids:
+                        latest_sell_price = latest_sell_book.bids[0].price
+                        latest_spread = (latest_sell_price - buy_trade.price) / buy_trade.price
+                        if latest_spread > total_cost:
+                            sell_order = await exchange_manager.execute_trade(
+                                opportunity.sell_exchange,
+                                opportunity.symbol,
+                                'sell',
+                                trade_amount,
+                                latest_sell_price,
+                                self.test_mode
+                            )
+                
+                if not sell_order:
+                    self._increment_failure_count(opportunity.sell_exchange, opportunity.symbol)
+                    
+                    self.alerts.append(AlertType(
+                        type="partial_fill",
+                        message=f"Partial fill: Buy executed on {opportunity.buy_exchange} but sell failed on {opportunity.sell_exchange} for {opportunity.symbol}",
+                        timestamp=datetime.now(),
+                        entity=opportunity.symbol,
+                        can_reactivate=False
+                    ))
+                    
+                    self.failsafes_triggered += 1
+                    return
             
             sell_trade = Trade(
                 id=sell_order['id'],
@@ -244,6 +368,20 @@ class ArbitrageBot:
             profit = sell_trade.cost - buy_trade.cost - sell_trade.fee - buy_trade.fee
             profit_percentage = profit / buy_trade.cost * 100
             
+            expected_profit_percentage = (current_spread - total_cost) * 100
+            profit_mismatch = abs(profit_percentage - expected_profit_percentage)
+            
+            if profit_mismatch > 0.5:
+                self.failsafe_status.disabled_pairs[opportunity.symbol] = datetime.now().isoformat()
+                self.alerts.append(AlertType(
+                    type="pair_disabled",
+                    message=f"Profit mismatch for {opportunity.symbol}: Expected {expected_profit_percentage:.2f}%, got {profit_percentage:.2f}%. Pair disabled for 5 minutes.",
+                    timestamp=datetime.now(),
+                    entity=opportunity.symbol,
+                    can_reactivate=True
+                ))
+                self.failsafes_triggered += 1
+            
             arbitrage_trade = ArbitrageTrade(
                 id=str(uuid.uuid4()),
                 buy_trade=buy_trade,
@@ -256,12 +394,33 @@ class ArbitrageBot:
             
             self.trades.append(arbitrage_trade)
             
+            # Update test balances if in test mode
             if self.test_mode:
                 self._update_test_balances(buy_trade, sell_trade)
+            else:
+                self._update_historical_high_balance()
+            
+            if opportunity.symbol in self.failsafe_status.pair_failure_counts:
+                self.failsafe_status.pair_failure_counts[opportunity.symbol] = 0
+            if opportunity.buy_exchange in self.failsafe_status.exchange_failure_counts:
+                self.failsafe_status.exchange_failure_counts[opportunity.buy_exchange] = 0
+            if opportunity.sell_exchange in self.failsafe_status.exchange_failure_counts:
+                self.failsafe_status.exchange_failure_counts[opportunity.sell_exchange] = 0
             
             return arbitrage_trade
         except Exception as e:
             print(f"Error executing arbitrage: {str(e)}")
+            self._increment_failure_count(opportunity.buy_exchange, opportunity.symbol)
+            self._increment_failure_count(opportunity.sell_exchange, opportunity.symbol)
+            
+            self.alerts.append(AlertType(
+                type="trade_error",
+                message=f"Error executing trade: {str(e)}",
+                timestamp=datetime.now(),
+                entity=None,
+                can_reactivate=False
+            ))
+            
             return None
     
     def _update_test_balances(self, buy_trade: Trade, sell_trade: Trade):
@@ -294,6 +453,136 @@ class ArbitrageBot:
             filtered_trades = self.trades
         
         return sorted(filtered_trades, key=lambda x: x.timestamp, reverse=True)[:limit]
+    
+    def _increment_failure_count(self, exchange: str, pair: str):
+        """Increment failure count for exchange and pair."""
+        if pair in self.failsafe_status.pair_failure_counts:
+            self.failsafe_status.pair_failure_counts[pair] += 1
+        else:
+            self.failsafe_status.pair_failure_counts[pair] = 1
+        
+        if exchange in self.failsafe_status.exchange_failure_counts:
+            self.failsafe_status.exchange_failure_counts[exchange] += 1
+        else:
+            self.failsafe_status.exchange_failure_counts[exchange] = 1
+        
+        if self.failsafe_status.pair_failure_counts[pair] >= 2:
+            if pair not in self.failsafe_status.disabled_pairs:
+                self.failsafe_status.disabled_pairs[pair] = datetime.now().isoformat()
+                self.alerts.append(AlertType(
+                    type="pair_disabled",
+                    message=f"Pair {pair} disabled due to multiple failures",
+                    timestamp=datetime.now(),
+                    entity=pair,
+                    can_reactivate=True
+                ))
+                self.failsafes_triggered += 1
+        
+        if self.failsafe_status.exchange_failure_counts[exchange] >= 3:
+            if exchange not in self.failsafe_status.disabled_exchanges:
+                self.failsafe_status.disabled_exchanges[exchange] = datetime.now().isoformat()
+                self.alerts.append(AlertType(
+                    type="exchange_disabled",
+                    message=f"Exchange {exchange} disabled due to multiple failures",
+                    timestamp=datetime.now(),
+                    entity=exchange,
+                    can_reactivate=True
+                ))
+                self.failsafes_triggered += 1
+    
+    def _update_historical_high_balance(self):
+        """Update historical high balance tracking and check for capital drop."""
+        if self.test_mode:
+            return
+        
+        current_balances = {}
+        for exchange_id, exchange_balance in exchange_manager.exchange_balances.items():
+            for currency, balance in exchange_balance.balances.items():
+                if currency not in current_balances:
+                    current_balances[currency] = 0
+                current_balances[currency] += balance.total
+        
+        for currency, total in current_balances.items():
+            if currency not in self.failsafe_status.historical_high_balance:
+                self.failsafe_status.historical_high_balance[currency] = total
+            elif total > self.failsafe_status.historical_high_balance[currency]:
+                self.failsafe_status.historical_high_balance[currency] = total
+        
+        for currency, high_balance in self.failsafe_status.historical_high_balance.items():
+            if currency in current_balances:
+                current_balance = current_balances[currency]
+                if high_balance > 0 and current_balance > 0:
+                    drop_percentage = (high_balance - current_balance) / high_balance
+                    if drop_percentage > 0.02:  # >2% drop
+                        if not self.failsafe_status.global_halt:
+                            self.failsafe_status.global_halt = True
+                            self.failsafe_status.global_halt_timestamp = datetime.now().isoformat()
+                            self.alerts.append(AlertType(
+                                type="global_halt",
+                                message=f"Global halt triggered: {currency} balance dropped by {drop_percentage*100:.2f}% from historical high",
+                                timestamp=datetime.now(),
+                                entity=None,
+                                can_reactivate=True
+                            ))
+                            self.failsafes_triggered += 1
+    
+    def reactivate_pair(self, pair: str) -> bool:
+        """Reactivate a disabled trading pair."""
+        if pair in self.failsafe_status.disabled_pairs:
+            del self.failsafe_status.disabled_pairs[pair]
+            if pair in self.failsafe_status.pair_failure_counts:
+                self.failsafe_status.pair_failure_counts[pair] = 0
+            
+            self.alerts.append(AlertType(
+                type="pair_disabled",
+                message=f"Pair {pair} manually reactivated",
+                timestamp=datetime.now(),
+                entity=pair,
+                can_reactivate=False
+            ))
+            return True
+        return False
+    
+    def reactivate_exchange(self, exchange: str) -> bool:
+        """Reactivate a disabled exchange."""
+        if exchange in self.failsafe_status.disabled_exchanges:
+            del self.failsafe_status.disabled_exchanges[exchange]
+            if exchange in self.failsafe_status.exchange_failure_counts:
+                self.failsafe_status.exchange_failure_counts[exchange] = 0
+            
+            self.alerts.append(AlertType(
+                type="exchange_disabled",
+                message=f"Exchange {exchange} manually reactivated",
+                timestamp=datetime.now(),
+                entity=exchange,
+                can_reactivate=False
+            ))
+            return True
+        return False
+    
+    def reactivate_global(self) -> bool:
+        """Reactivate global trading after halt."""
+        if self.failsafe_status.global_halt:
+            self.failsafe_status.global_halt = False
+            self.failsafe_status.global_halt_timestamp = None
+            
+            self.alerts.append(AlertType(
+                type="global_halt",
+                message="Global trading manually reactivated",
+                timestamp=datetime.now(),
+                entity=None,
+                can_reactivate=False
+            ))
+            return True
+        return False
+    
+    def get_failsafe_status(self) -> FailsafeStatus:
+        """Get current failsafe status."""
+        return self.failsafe_status
+    
+    def get_alerts(self, limit: int = 50) -> List[AlertType]:
+        """Get recent alerts."""
+        return sorted(self.alerts, key=lambda x: x.timestamp, reverse=True)[:limit]
     
     def get_test_balances(self) -> Dict:
         """Get current test balances."""

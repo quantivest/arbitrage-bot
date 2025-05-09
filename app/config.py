@@ -10,8 +10,7 @@ class Settings(BaseSettings):
     TRADING_PAIRS: List[str] = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
     
     SUPPORTED_EXCHANGES: List[str] = [
-        "binanceus", "coinbase", "kraken", "gemini", 
-        "bitstamp", "pionex", "margex"
+        "binanceus", "kraken", "gemini", "bitstamp"
     ]
     
     BUFFER_PERCENTAGE: float = 0.0001  # 0.01% default buffer

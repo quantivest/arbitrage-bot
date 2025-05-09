@@ -3,7 +3,7 @@ import ConnectTab from './components/ConnectTab';
 import DashboardTab from './components/DashboardTab';
 import TestModeTab from './components/TestModeTab';
 import { exchangeApi, botApi, connectWebSocket } from './api';
-import { ArbitrageTrade, BotStatus, ExchangeBalance, TestModeSettings } from './types';
+import { ArbitrageTrade, BotStatus, ExchangeBalance, TestModeSettings, AlertType } from './types';
 import "./index.css";
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
@@ -129,6 +129,30 @@ function App() {
       setError(error.message || 'Failed to stop test mode');
     }
   };
+  
+  const handleReactivatePair = async (pair: string) => {
+    try {
+      await botApi.reactivatePair(pair);
+    } catch (error: any) {
+      setError(error.message || `Failed to reactivate pair ${pair}`);
+    }
+  };
+  
+  const handleReactivateExchange = async (exchange: string) => {
+    try {
+      await botApi.reactivateExchange(exchange);
+    } catch (error: any) {
+      setError(error.message || `Failed to reactivate exchange ${exchange}`);
+    }
+  };
+  
+  const handleReactivateGlobal = async () => {
+    try {
+      await botApi.reactivateGlobal();
+    } catch (error: any) {
+      setError(error.message || 'Failed to reactivate global trading');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
@@ -192,6 +216,10 @@ function App() {
               trades={botStatus.test_mode ? testTrades : trades} 
               balances={balances}
               isTestMode={botStatus.test_mode}
+              botStatus={botStatus}
+              onReactivatePair={handleReactivatePair}
+              onReactivateExchange={handleReactivateExchange}
+              onReactivateGlobal={handleReactivateGlobal}
             />
           )}
           

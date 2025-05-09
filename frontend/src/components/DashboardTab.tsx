@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ArbitrageTrade, ExchangeBalance } from '../types';
+import { ArbitrageTrade, ExchangeBalance, AlertType, BotStatus } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { formatDistanceToNow } from 'date-fns';
+import { Button } from './ui/button';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 
 interface DashboardTabProps {
   trades: ArbitrageTrade[];
   balances: ExchangeBalance[];
   isTestMode: boolean;
+  botStatus: BotStatus;
+  onReactivatePair: (pair: string) => void;
+  onReactivateExchange: (exchange: string) => void;
+  onReactivateGlobal: () => void;
 }
 
-export default function DashboardTab({ trades, balances, isTestMode }: DashboardTabProps) {
+export default function DashboardTab({ trades, balances, isTestMode, botStatus, onReactivatePair, onReactivateExchange, onReactivateGlobal }: DashboardTabProps) {
   const [pnlChartData, setPnlChartData] = useState<any[]>([]);
   const [spreadChartData, setSpreadChartData] = useState<any[]>([]);
   const [volumeChartData, setVolumeChartData] = useState<any[]>([]);
@@ -80,6 +86,100 @@ export default function DashboardTab({ trades, balances, isTestMode }: Dashboard
         </Card>
       </div>
       
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Trades Blocked</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{botStatus?.trades_blocked || 0}</div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Failsafes Triggered</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{botStatus?.failsafes_triggered || 0}</div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">System Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${botStatus?.failsafe_status?.global_halt ? 'text-red-500' : 'text-green-500'}`}>
+              {botStatus?.failsafe_status?.global_halt ? 'HALTED' : 'ACTIVE'}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Alerts & System Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="max-h-60 overflow-y-auto bg-gray-800 rounded-md">
+            {botStatus?.alerts && botStatus.alerts.length > 0 ? (
+              <div className="space-y-2 p-2">
+                {botStatus.alerts.map((alert, index) => (
+                  <div 
+                    key={index} 
+                    className={`p-3 rounded-md ${
+                      alert.can_reactivate ? 'bg-red-900/30' : 'bg-green-900/30'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="flex items-center">
+                        <AlertCircle className="h-4 w-4 mr-2 text-white" />
+                        <span className="text-white font-medium">
+                          {alert.type === 'pair_disabled' && 'Pair Disabled'}
+                          {alert.type === 'exchange_disabled' && 'Exchange Disabled'}
+                          {alert.type === 'global_halt' && 'Global Halt'}
+                          {alert.type === 'partial_fill' && 'Partial Fill'}
+                          {alert.type === 'trade_error' && 'Trade Error'}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {new Date(alert.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-white text-sm mb-2">{alert.message}</p>
+                    {alert.can_reactivate && (
+                      <div className="flex justify-end">
+                        <Button 
+                          size="sm" 
+                          className="bg-green-700 hover:bg-green-600 text-white"
+                          onClick={() => {
+                            if (alert.type === 'pair_disabled' && alert.entity) {
+                              onReactivatePair(alert.entity);
+                            } else if (alert.type === 'exchange_disabled' && alert.entity) {
+                              onReactivateExchange(alert.entity);
+                            } else if (alert.type === 'global_halt') {
+                              onReactivateGlobal();
+                            }
+                          }}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Reactivate
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 text-center text-white">
+                No alerts at this time. System operating normally.
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <Card>
           <CardHeader>

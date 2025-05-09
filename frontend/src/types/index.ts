@@ -73,12 +73,34 @@ export interface TestModeSettings {
   exchanges: string[];
 }
 
+export interface AlertType {
+  type: "pair_disabled" | "exchange_disabled" | "global_halt" | "partial_fill" | "trade_error";
+  message: string;
+  timestamp: string;
+  entity?: string;  // pair or exchange name if applicable
+  can_reactivate: boolean;
+}
+
+export interface FailsafeStatus {
+  disabled_pairs: Record<string, string>;  // pair -> disabled_timestamp
+  disabled_exchanges: Record<string, string>;  // exchange -> disabled_timestamp
+  global_halt: boolean;
+  global_halt_timestamp?: string;
+  historical_high_balance: Record<string, number>;  // currency -> amount
+  pair_failure_counts: Record<string, number>;  // pair -> count of recent failures
+  exchange_failure_counts: Record<string, number>;  // exchange -> count of recent failures
+}
+
 export interface BotStatus {
   running: boolean;
   test_mode: boolean;
   connected_exchanges: string[];
   last_update: string;
   error?: string;
+  failsafe_status?: FailsafeStatus;
+  alerts: AlertType[];
+  trades_blocked: number;
+  failsafes_triggered: number;
 }
 
 export interface ExchangeCredentials {

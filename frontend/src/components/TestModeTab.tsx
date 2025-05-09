@@ -23,10 +23,11 @@ export default function TestModeTab({
   onStartTest, 
   onStopTest 
 }: TestModeTabProps) {
-  const [btcCapital, setBtcCapital] = useState<number>(10);
-  const [ethCapital, setEthCapital] = useState<number>(10);
-  const [solCapital, setSolCapital] = useState<number>(10);
+  const [btcCapital, setBtcCapital] = useState<number>(50);
+  const [ethCapital, setEthCapital] = useState<number>(50);
+  const [solCapital, setSolCapital] = useState<number>(50);
   const [bufferPercentage, setBufferPercentage] = useState<number>(0.01);
+  const [usdtCapital, setUsdtCapital] = useState<number>(50);
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [profitChartData, setProfitChartData] = useState<any[]>([]);
@@ -132,51 +133,124 @@ export default function TestModeTab({
                 
                 <div id="mobile-sliders" className="space-y-6 hidden">
                   <div className="space-y-4">
-                    <Label>BTC/USDT Capital: {formatSliderValue(btcCapital)}</Label>
-                    <Slider
-                      value={[btcCapital]}
-                      min={10}
-                      max={1000000}
-                      step={10}
-                      onValueChange={(value) => setBtcCapital(value[0])}
-                      disabled={botStatus.test_mode}
-                    />
+                    <Label>USDT Capital (per exchange): ${usdtCapital}</Label>
+                    <div className="flex items-center space-x-2">
+                      <Slider
+                        value={[usdtCapital]}
+                        min={50}
+                        max={7500}
+                        step={50}
+                        onValueChange={(value) => setUsdtCapital(value[0])}
+                        disabled={botStatus.test_mode}
+                        className="flex-grow"
+                      />
+                      <input
+                        type="number"
+                        min={50}
+                        max={7500}
+                        value={usdtCapital}
+                        onChange={(e) => setUsdtCapital(Number(e.target.value))}
+                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                        disabled={botStatus.test_mode}
+                      />
+                    </div>
                   </div>
                   
                   <div className="space-y-4">
-                    <Label>ETH/USDT Capital: {formatSliderValue(ethCapital)}</Label>
-                    <Slider
-                      value={[ethCapital]}
-                      min={10}
-                      max={1000000}
-                      step={10}
-                      onValueChange={(value) => setEthCapital(value[0])}
-                      disabled={botStatus.test_mode}
-                    />
+                    <Label>BTC/USDT Capital: ${btcCapital}</Label>
+                    <div className="flex items-center space-x-2">
+                      <Slider
+                        value={[btcCapital]}
+                        min={10}
+                        max={750}
+                        step={10}
+                        onValueChange={(value) => setBtcCapital(value[0])}
+                        disabled={botStatus.test_mode}
+                        className="flex-grow"
+                      />
+                      <input
+                        type="number"
+                        min={10}
+                        max={750}
+                        value={btcCapital}
+                        onChange={(e) => setBtcCapital(Number(e.target.value))}
+                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                        disabled={botStatus.test_mode}
+                      />
+                    </div>
                   </div>
                   
                   <div className="space-y-4">
-                    <Label>SOL/USDT Capital: {formatSliderValue(solCapital)}</Label>
-                    <Slider
-                      value={[solCapital]}
-                      min={10}
-                      max={1000000}
-                      step={10}
-                      onValueChange={(value) => setSolCapital(value[0])}
-                      disabled={botStatus.test_mode}
-                    />
+                    <Label>ETH/USDT Capital: ${ethCapital}</Label>
+                    <div className="flex items-center space-x-2">
+                      <Slider
+                        value={[ethCapital]}
+                        min={10}
+                        max={750}
+                        step={10}
+                        onValueChange={(value) => setEthCapital(value[0])}
+                        disabled={botStatus.test_mode}
+                        className="flex-grow"
+                      />
+                      <input
+                        type="number"
+                        min={10}
+                        max={750}
+                        value={ethCapital}
+                        onChange={(e) => setEthCapital(Number(e.target.value))}
+                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                        disabled={botStatus.test_mode}
+                      />
+                    </div>
                   </div>
                   
                   <div className="space-y-4">
-                    <Label>Buffer Percentage: {bufferPercentage.toFixed(2)}%</Label>
-                    <Slider
-                      value={[bufferPercentage]}
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      onValueChange={(value) => setBufferPercentage(value[0])}
-                      disabled={botStatus.test_mode}
-                    />
+                    <Label>SOL/USDT Capital: ${solCapital}</Label>
+                    <div className="flex items-center space-x-2">
+                      <Slider
+                        value={[solCapital]}
+                        min={10}
+                        max={750}
+                        step={10}
+                        onValueChange={(value) => setSolCapital(value[0])}
+                        disabled={botStatus.test_mode}
+                        className="flex-grow"
+                      />
+                      <input
+                        type="number"
+                        min={10}
+                        max={750}
+                        value={solCapital}
+                        onChange={(e) => setSolCapital(Number(e.target.value))}
+                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                        disabled={botStatus.test_mode}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <Label>Buffer Percentage: {bufferPercentage.toFixed(4)}%</Label>
+                    <div className="flex items-center space-x-2">
+                      <Slider
+                        value={[bufferPercentage]}
+                        min={0}
+                        max={1}
+                        step={0.0001}
+                        onValueChange={(value) => setBufferPercentage(value[0])}
+                        disabled={botStatus.test_mode}
+                        className="flex-grow"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.0001}
+                        value={bufferPercentage}
+                        onChange={(e) => setBufferPercentage(Number(e.target.value))}
+                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                        disabled={botStatus.test_mode}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -184,51 +258,124 @@ export default function TestModeTab({
               {/* Desktop slider section (non-collapsible) */}
               <div className="hidden md:block space-y-6">
                 <div className="space-y-4">
-                  <Label>BTC/USDT Capital: {formatSliderValue(btcCapital)}</Label>
-                  <Slider
-                    value={[btcCapital]}
-                    min={10}
-                    max={1000000}
-                    step={10}
-                    onValueChange={(value) => setBtcCapital(value[0])}
-                    disabled={botStatus.test_mode}
-                  />
+                  <Label>USDT Capital (per exchange): ${usdtCapital}</Label>
+                  <div className="flex items-center space-x-2">
+                    <Slider
+                      value={[usdtCapital]}
+                      min={50}
+                      max={7500}
+                      step={50}
+                      onValueChange={(value) => setUsdtCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                      className="flex-grow"
+                    />
+                    <input
+                      type="number"
+                      min={50}
+                      max={7500}
+                      value={usdtCapital}
+                      onChange={(e) => setUsdtCapital(Number(e.target.value))}
+                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
                 </div>
                 
                 <div className="space-y-4">
-                  <Label>ETH/USDT Capital: {formatSliderValue(ethCapital)}</Label>
-                  <Slider
-                    value={[ethCapital]}
-                    min={10}
-                    max={1000000}
-                    step={10}
-                    onValueChange={(value) => setEthCapital(value[0])}
-                    disabled={botStatus.test_mode}
-                  />
+                  <Label>BTC/USDT Capital: ${btcCapital}</Label>
+                  <div className="flex items-center space-x-2">
+                    <Slider
+                      value={[btcCapital]}
+                      min={10}
+                      max={750}
+                      step={10}
+                      onValueChange={(value) => setBtcCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                      className="flex-grow"
+                    />
+                    <input
+                      type="number"
+                      min={10}
+                      max={750}
+                      value={btcCapital}
+                      onChange={(e) => setBtcCapital(Number(e.target.value))}
+                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
                 </div>
                 
                 <div className="space-y-4">
-                  <Label>SOL/USDT Capital: {formatSliderValue(solCapital)}</Label>
-                  <Slider
-                    value={[solCapital]}
-                    min={10}
-                    max={1000000}
-                    step={10}
-                    onValueChange={(value) => setSolCapital(value[0])}
-                    disabled={botStatus.test_mode}
-                  />
+                  <Label>ETH/USDT Capital: ${ethCapital}</Label>
+                  <div className="flex items-center space-x-2">
+                    <Slider
+                      value={[ethCapital]}
+                      min={10}
+                      max={750}
+                      step={10}
+                      onValueChange={(value) => setEthCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                      className="flex-grow"
+                    />
+                    <input
+                      type="number"
+                      min={10}
+                      max={750}
+                      value={ethCapital}
+                      onChange={(e) => setEthCapital(Number(e.target.value))}
+                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
                 </div>
                 
                 <div className="space-y-4">
-                  <Label>Buffer Percentage: {bufferPercentage.toFixed(2)}%</Label>
-                  <Slider
-                    value={[bufferPercentage]}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    onValueChange={(value) => setBufferPercentage(value[0])}
-                    disabled={botStatus.test_mode}
-                  />
+                  <Label>SOL/USDT Capital: ${solCapital}</Label>
+                  <div className="flex items-center space-x-2">
+                    <Slider
+                      value={[solCapital]}
+                      min={10}
+                      max={750}
+                      step={10}
+                      onValueChange={(value) => setSolCapital(value[0])}
+                      disabled={botStatus.test_mode}
+                      className="flex-grow"
+                    />
+                    <input
+                      type="number"
+                      min={10}
+                      max={750}
+                      value={solCapital}
+                      onChange={(e) => setSolCapital(Number(e.target.value))}
+                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <Label>Buffer Percentage: {bufferPercentage.toFixed(4)}%</Label>
+                  <div className="flex items-center space-x-2">
+                    <Slider
+                      value={[bufferPercentage]}
+                      min={0}
+                      max={1}
+                      step={0.0001}
+                      onValueChange={(value) => setBufferPercentage(value[0])}
+                      disabled={botStatus.test_mode}
+                      className="flex-grow"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.0001}
+                      value={bufferPercentage}
+                      onChange={(e) => setBufferPercentage(Number(e.target.value))}
+                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
+                      disabled={botStatus.test_mode}
+                    />
+                  </div>
                 </div>
               </div>
               

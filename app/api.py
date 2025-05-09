@@ -6,7 +6,7 @@ from datetime import datetime
 
 from .models import (
     ExchangeCredentials, ExchangeBalance, ArbitrageOpportunity, 
-    ArbitrageTrade, TestModeSettings, BotStatus
+    ArbitrageTrade, TestModeSettings, BotStatus, AlertType, FailsafeStatus
 )
 from .exchanges import exchange_manager
 from .arbitrage import arbitrage_bot
@@ -20,13 +20,20 @@ async def broadcast_updates():
     """Broadcast updates to all connected WebSocket clients."""
     while True:
         if active_connections:
+            status = BotStatus(
+                running=arbitrage_bot.running,
+                test_mode=arbitrage_bot.test_mode,
+                connected_exchanges=list(exchange_manager.exchanges.keys()),
+                last_update=datetime.now(),
+                failsafe_status=arbitrage_bot.get_failsafe_status(),
+                alerts=arbitrage_bot.get_alerts(10),
+                trades_blocked=arbitrage_bot.trades_blocked,
+                failsafes_triggered=arbitrage_bot.failsafes_triggered
+            )
+            
             data = {
                 "timestamp": datetime.now().isoformat(),
-                "bot_status": {
-                    "running": arbitrage_bot.running,
-                    "test_mode": arbitrage_bot.test_mode,
-                    "connected_exchanges": list(exchange_manager.exchanges.keys())
-                },
+                "bot_status": status.dict(),
                 "recent_trades": [trade.dict() for trade in arbitrage_bot.get_recent_trades(10)],
                 "recent_opportunities": [opp.dict() for opp in arbitrage_bot.get_recent_opportunities(10)]
             }
@@ -110,7 +117,11 @@ async def get_bot_status():
         running=arbitrage_bot.running,
         test_mode=arbitrage_bot.test_mode,
         connected_exchanges=list(exchange_manager.exchanges.keys()),
-        last_update=datetime.now()
+        last_update=datetime.now(),
+        failsafe_status=arbitrage_bot.get_failsafe_status(),
+        alerts=arbitrage_bot.get_alerts(10),
+        trades_blocked=arbitrage_bot.trades_blocked,
+        failsafes_triggered=arbitrage_bot.failsafes_triggered
     )
     
     return status.dict()
@@ -147,6 +158,43 @@ async def get_trades(limit: int = 50, test_mode: Optional[bool] = None):
     trades = arbitrage_bot.get_recent_trades(limit, test_mode)
     
     return {"trades": [trade.dict() for trade in trades]}
+
+@router.get("/alerts")
+async def get_alerts(limit: int = 50):
+    """Get recent alerts."""
+    alerts = arbitrage_bot.get_alerts(limit)
+    
+    return {"alerts": [alert.dict() for alert in alerts]}
+
+@router.post("/reactivate/pair/{pair}")
+async def reactivate_pair(pair: str):
+    """Reactivate a disabled trading pair."""
+    success = arbitrage_bot.reactivate_pair(pair)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Pair {pair} not disabled or not found")
+    
+    return {"status": "reactivated", "pair": pair}
+
+@router.post("/reactivate/exchange/{exchange}")
+async def reactivate_exchange(exchange: str):
+    """Reactivate a disabled exchange."""
+    success = arbitrage_bot.reactivate_exchange(exchange)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Exchange {exchange} not disabled or not found")
+    
+    return {"status": "reactivated", "exchange": exchange}
+
+@router.post("/reactivate/global")
+async def reactivate_global():
+    """Reactivate global trading after halt."""
+    success = arbitrage_bot.reactivate_global()
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Global trading not halted")
+    
+    return {"status": "reactivated", "global": True}
 
 @router.get("/test/balances")
 async def get_test_balances():
