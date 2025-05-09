@@ -62,22 +62,31 @@ class ArbitrageBot:
         
         for exchange in exchanges:
             self.test_balances[exchange] = {
-                'BTC': {'free': 0.0, 'used': 0.0, 'total': 0.0},
-                'ETH': {'free': 0.0, 'used': 0.0, 'total': 0.0},
-                'SOL': {'free': 0.0, 'used': 0.0, 'total': 0.0},
                 'USDT': {'free': 0.0, 'used': 0.0, 'total': 0.0}
             }
+            
+            for pair in settings.TRADING_PAIRS:
+                base, _ = pair.split('/')
+                if base not in self.test_balances[exchange]:
+                    self.test_balances[exchange][base] = {'free': 0.0, 'used': 0.0, 'total': 0.0}
+        
+        approx_prices = {
+            'BTC/USDT': 50000,
+            'ETH/USDT': 3000,
+            'SOL/USDT': 100,
+            'AVAX/USDT': 30,
+            'ADA/USDT': 0.5,
+            'LINK/USDT': 15,
+            'MATIC/USDT': 1,
+            'DOGE/USDT': 0.1,
+            'ATOM/USDT': 10,
+            'NEAR/USDT': 5
+        }
         
         for pair in settings.TRADING_PAIRS:
             base, quote = pair.split('/')
             
-            capital = capital_per_pair.get(pair, default_capital)
-            
-            approx_prices = {
-                'BTC/USDT': 50000,
-                'ETH/USDT': 3000,
-                'SOL/USDT': 100
-            }
+            capital = capital_per_pair.get(list(capital_per_pair.keys())[0], default_capital) if capital_per_pair else default_capital
             
             base_amount = capital / approx_prices.get(pair, 1)
             
