@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ArbitrageTrade, ExchangeBalance, AlertType, BotStatus } from '../types';
+import { ArbitrageTrade, ExchangeBalance, BotStatus } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from './ui/button';
