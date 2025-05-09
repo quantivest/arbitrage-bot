@@ -60,7 +60,7 @@ export default function TestModeTab({
   
   const handleExchangeToggle = (exchange: string) => {
     if (selectedExchanges.includes(exchange)) {
-      setSelectedExchanges(selectedExchanges.filter(e => e !== exchange));
+      setSelectedExchanges(selectedExchanges.filter((e: string) => e !== exchange));
     } else {
       setSelectedExchanges([...selectedExchanges, exchange]);
     }
@@ -92,15 +92,6 @@ export default function TestModeTab({
     }
   };
   
-  const formatSliderValue = (value: number) => {
-    if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
-    } else if (value >= 1000) {
-      return `$${(value / 1000).toFixed(1)}K`;
-    } else {
-      return `$${value}`;
-    }
-  };
   
   return (
     <div className="container mx-auto py-6">
