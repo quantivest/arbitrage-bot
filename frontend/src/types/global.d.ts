@@ -11,6 +11,14 @@ declare global {
 declare module 'react' {
   export const useState: any;
   export const useEffect: any;
+  export const StrictMode: any;
+  export const forwardRef: any;
+  export const createContext: any;
+  export const useContext: any;
+  export type ReactNode = any;
+  export type ReactElement<T = any> = any;
+  export type ElementRef<T = any> = any;
+  export type ComponentPropsWithoutRef<T = any> = any;
 }
 
 declare module 'recharts' {
