@@ -23,9 +23,7 @@ export default function TestModeTab({
   onStartTest, 
   onStopTest 
 }: TestModeTabProps) {
-  const [btcCapital, setBtcCapital] = useState<number>(50);
-  const [ethCapital, setEthCapital] = useState<number>(50);
-  const [solCapital, setSolCapital] = useState<number>(50);
+  const [assetCapital, setAssetCapital] = useState<number>(50);
   const [bufferPercentage, setBufferPercentage] = useState<number>(0.01);
   const [usdtCapital, setUsdtCapital] = useState<number>(50);
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>([]);
@@ -75,13 +73,19 @@ export default function TestModeTab({
         return;
       }
       
+      const capital_per_pair = {};
+      const tradingPairs = [
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "AVAX/USDT", "ADA/USDT",
+        "LINK/USDT", "MATIC/USDT", "DOGE/USDT", "ATOM/USDT", "NEAR/USDT"
+      ];
+      
+      tradingPairs.forEach(pair => {
+        capital_per_pair[pair] = assetCapital;
+      });
+      
       const testSettings: TestModeSettings = {
         enabled: true,
-        capital_per_pair: {
-          "BTC/USDT": btcCapital,
-          "ETH/USDT": ethCapital,
-          "SOL/USDT": solCapital,
-        },
+        capital_per_pair: capital_per_pair,
         buffer_percentage: bufferPercentage / 100, // Convert from percentage to decimal
         exchanges: selectedExchanges,
       };
@@ -148,14 +152,14 @@ export default function TestModeTab({
                   </div>
                   
                   <div className="space-y-4">
-                    <Label>BTC/USDT Capital: ${btcCapital}</Label>
+                    <Label>Asset Capital (per pair): ${assetCapital}</Label>
                     <div className="flex items-center space-x-2">
                       <Slider
-                        value={[btcCapital]}
+                        value={[assetCapital]}
                         min={10}
                         max={750}
                         step={10}
-                        onValueChange={(value) => setBtcCapital(value[0])}
+                        onValueChange={(value) => setAssetCapital(value[0])}
                         disabled={botStatus.test_mode}
                         className="flex-grow"
                       />
@@ -163,56 +167,8 @@ export default function TestModeTab({
                         type="number"
                         min={10}
                         max={750}
-                        value={btcCapital}
-                        onChange={(e) => setBtcCapital(Number(e.target.value))}
-                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                        disabled={botStatus.test_mode}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <Label>ETH/USDT Capital: ${ethCapital}</Label>
-                    <div className="flex items-center space-x-2">
-                      <Slider
-                        value={[ethCapital]}
-                        min={10}
-                        max={750}
-                        step={10}
-                        onValueChange={(value) => setEthCapital(value[0])}
-                        disabled={botStatus.test_mode}
-                        className="flex-grow"
-                      />
-                      <input
-                        type="number"
-                        min={10}
-                        max={750}
-                        value={ethCapital}
-                        onChange={(e) => setEthCapital(Number(e.target.value))}
-                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                        disabled={botStatus.test_mode}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <Label>SOL/USDT Capital: ${solCapital}</Label>
-                    <div className="flex items-center space-x-2">
-                      <Slider
-                        value={[solCapital]}
-                        min={10}
-                        max={750}
-                        step={10}
-                        onValueChange={(value) => setSolCapital(value[0])}
-                        disabled={botStatus.test_mode}
-                        className="flex-grow"
-                      />
-                      <input
-                        type="number"
-                        min={10}
-                        max={750}
-                        value={solCapital}
-                        onChange={(e) => setSolCapital(Number(e.target.value))}
+                        value={assetCapital}
+                        onChange={(e) => setAssetCapital(Number(e.target.value))}
                         className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
                         disabled={botStatus.test_mode}
                       />
@@ -273,14 +229,14 @@ export default function TestModeTab({
                 </div>
                 
                 <div className="space-y-4">
-                  <Label>BTC/USDT Capital: ${btcCapital}</Label>
+                  <Label>Asset Capital (per pair): ${assetCapital}</Label>
                   <div className="flex items-center space-x-2">
                     <Slider
-                      value={[btcCapital]}
+                      value={[assetCapital]}
                       min={10}
                       max={750}
                       step={10}
-                      onValueChange={(value) => setBtcCapital(value[0])}
+                      onValueChange={(value) => setAssetCapital(value[0])}
                       disabled={botStatus.test_mode}
                       className="flex-grow"
                     />
@@ -288,56 +244,8 @@ export default function TestModeTab({
                       type="number"
                       min={10}
                       max={750}
-                      value={btcCapital}
-                      onChange={(e) => setBtcCapital(Number(e.target.value))}
-                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                      disabled={botStatus.test_mode}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
-                  <Label>ETH/USDT Capital: ${ethCapital}</Label>
-                  <div className="flex items-center space-x-2">
-                    <Slider
-                      value={[ethCapital]}
-                      min={10}
-                      max={750}
-                      step={10}
-                      onValueChange={(value) => setEthCapital(value[0])}
-                      disabled={botStatus.test_mode}
-                      className="flex-grow"
-                    />
-                    <input
-                      type="number"
-                      min={10}
-                      max={750}
-                      value={ethCapital}
-                      onChange={(e) => setEthCapital(Number(e.target.value))}
-                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                      disabled={botStatus.test_mode}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
-                  <Label>SOL/USDT Capital: ${solCapital}</Label>
-                  <div className="flex items-center space-x-2">
-                    <Slider
-                      value={[solCapital]}
-                      min={10}
-                      max={750}
-                      step={10}
-                      onValueChange={(value) => setSolCapital(value[0])}
-                      disabled={botStatus.test_mode}
-                      className="flex-grow"
-                    />
-                    <input
-                      type="number"
-                      min={10}
-                      max={750}
-                      value={solCapital}
-                      onChange={(e) => setSolCapital(Number(e.target.value))}
+                      value={assetCapital}
+                      onChange={(e) => setAssetCapital(Number(e.target.value))}
                       className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
                       disabled={botStatus.test_mode}
                     />
