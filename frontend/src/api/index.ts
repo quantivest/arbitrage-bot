@@ -32,26 +32,51 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
   }
 }
 
-export function connectWebSocket(onMessage: (data: any) => void) {
+export function connectWebSocket(onMessage: (data: any) => void, onConnectionChange: (connected: boolean) => void) {
   const wsUrl = API_URL.replace('http', 'ws') + '/api/ws';
+  console.log('Connecting to WebSocket at:', wsUrl);
+  
   const socket = new WebSocket(wsUrl);
+  
+  socket.onopen = () => {
+    console.log('WebSocket connection established');
+    onConnectionChange(true);
+    
+    socket.send(JSON.stringify({ type: 'ping' }));
+    
+    const pingInterval = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping' }));
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000); // Ping every 30 seconds
+  };
   
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+      console.log('WebSocket message received:', data);
+      
+      if (data.type === 'pong') {
+        console.log('Received pong from server');
+        return;
+      }
+      
       onMessage(data);
     } catch (error) {
       console.error('WebSocket message parsing error:', error);
     }
   };
   
-  socket.onclose = () => {
-    console.log('WebSocket connection closed');
-    setTimeout(() => connectWebSocket(onMessage), 5000);
+  socket.onclose = (event) => {
+    console.log('WebSocket connection closed:', event.code, event.reason);
+    onConnectionChange(false);
   };
   
   socket.onerror = (error) => {
     console.error('WebSocket error:', error);
+    onConnectionChange(false);
   };
   
   return socket;

@@ -6,14 +6,15 @@ import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { exchangeApi, botApi } from '../api';
 import { BotStatus } from '../types';
-import { AlertCircle, CheckCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 
 interface ConnectTabProps {
   botStatus: BotStatus;
   onBotStatusChange: (running: boolean) => void;
+  wsConnected?: boolean;
 }
 
-export default function ConnectTab({ botStatus, onBotStatusChange }: ConnectTabProps) {
+export default function ConnectTab({ botStatus, onBotStatusChange, wsConnected = false }: ConnectTabProps) {
   const [supportedExchanges, setSupportedExchanges] = useState<string[]>([]);
   const [selectedExchange, setSelectedExchange] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>('');
@@ -70,6 +71,16 @@ export default function ConnectTab({ botStatus, onBotStatusChange }: ConnectTabP
         additional_params: parsedParams,
       });
 
+      try {
+        const connectedResponse = await exchangeApi.getConnectedExchanges();
+        console.log('Connected exchanges after connection:', connectedResponse.exchanges);
+        
+        // Update bot status with new connected exchanges
+        onBotStatusChange(botStatus.running);
+      } catch (e) {
+        console.error('Failed to fetch connected exchanges:', e);
+      }
+
       setSuccess(`Successfully connected to ${selectedExchange}`);
       
       setApiKey('');
@@ -98,6 +109,20 @@ export default function ConnectTab({ botStatus, onBotStatusChange }: ConnectTabP
       }
     } catch (error: any) {
       setError(error.message || 'Failed to start/stop bot');
+    }
+  };
+  
+  const handleRefreshStatus = async () => {
+    try {
+      setError(null);
+      const connectedResponse = await exchangeApi.getConnectedExchanges();
+      console.log('Manually refreshed exchanges:', connectedResponse.exchanges);
+      onBotStatusChange(botStatus.running);
+      if (connectedResponse.exchanges.length > 0) {
+        setSuccess('Connection status refreshed successfully');
+      }
+    } catch (error: any) {
+      setError(error.message || 'Failed to refresh connection status');
     }
   };
 
@@ -187,11 +212,21 @@ export default function ConnectTab({ botStatus, onBotStatusChange }: ConnectTabP
         </Card>
         
         <Card>
-          <CardHeader>
-            <CardTitle>Connected Exchanges</CardTitle>
-            <CardDescription>
-              Manage your connected exchanges
-            </CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div>
+              <CardTitle>Connected Exchanges</CardTitle>
+              <CardDescription>
+                Manage your connected exchanges
+              </CardDescription>
+            </div>
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={handleRefreshStatus} 
+              title="Refresh connection status"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -237,11 +272,18 @@ export default function ConnectTab({ botStatus, onBotStatusChange }: ConnectTabP
         </Card>
       </div>
       
-      <div className="mt-6 flex justify-center">
+      <div className="mt-6 flex justify-center space-x-6">
         <div className="flex items-center space-x-2">
           <div className={`h-4 w-4 rounded-full ${botStatus.running ? 'bg-green-500' : 'bg-red-500'}`}></div>
           <span className="font-medium">
             Bot Status: {botStatus.running ? 'Running' : 'Stopped'}
+          </span>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <div className={`h-4 w-4 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+          <span className="font-medium">
+            WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
       </div>
