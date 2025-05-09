@@ -19,30 +19,41 @@ active_connections: List[WebSocket] = []
 async def broadcast_updates():
     """Broadcast updates to all connected WebSocket clients."""
     while True:
-        if active_connections:
-            status = BotStatus(
-                running=arbitrage_bot.running,
-                test_mode=arbitrage_bot.test_mode,
-                connected_exchanges=list(exchange_manager.exchanges.keys()),
-                last_update=datetime.now(),
-                failsafe_status=arbitrage_bot.get_failsafe_status(),
-                alerts=arbitrage_bot.get_alerts(10),
-                trades_blocked=arbitrage_bot.trades_blocked,
-                failsafes_triggered=arbitrage_bot.failsafes_triggered
-            )
-            
-            data = {
-                "timestamp": datetime.now().isoformat(),
-                "bot_status": status.dict(),
-                "recent_trades": [trade.dict() for trade in arbitrage_bot.get_recent_trades(10)],
-                "recent_opportunities": [opp.dict() for opp in arbitrage_bot.get_recent_opportunities(10)]
-            }
-            
-            for connection in active_connections:
-                try:
-                    await connection.send_text(json.dumps(data))
-                except Exception:
-                    pass  # Connection might be closed
+        try:
+            if active_connections:
+                connected_exchanges = list(exchange_manager.exchanges.keys())
+                
+                print(f"Broadcasting update: Connected exchanges: {connected_exchanges}")
+                
+                status = BotStatus(
+                    running=arbitrage_bot.running,
+                    test_mode=arbitrage_bot.test_mode,
+                    connected_exchanges=connected_exchanges,
+                    last_update=datetime.now(),
+                    failsafe_status=arbitrage_bot.get_failsafe_status(),
+                    alerts=arbitrage_bot.get_alerts(10),
+                    trades_blocked=arbitrage_bot.trades_blocked,
+                    failsafes_triggered=arbitrage_bot.failsafes_triggered
+                )
+                
+                data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "bot_status": status.dict(),
+                    "recent_trades": [trade.dict() for trade in arbitrage_bot.get_recent_trades(10)],
+                    "recent_opportunities": [opp.dict() for opp in arbitrage_bot.get_recent_opportunities(10)]
+                }
+                
+                print(f"Broadcasting to {len(active_connections)} active WebSocket connections")
+                
+                for connection in active_connections:
+                    try:
+                        await connection.send_text(json.dumps(data))
+                    except Exception as e:
+                        print(f"Error sending update to client: {str(e)}")
+                        if connection in active_connections:
+                            active_connections.remove(connection)
+        except Exception as e:
+            print(f"Error in broadcast loop: {str(e)}")
         
         await asyncio.sleep(2)
 
@@ -54,11 +65,45 @@ async def startup_event():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
+    
+    try:
+        status = BotStatus(
+            running=arbitrage_bot.running,
+            test_mode=arbitrage_bot.test_mode,
+            connected_exchanges=list(exchange_manager.exchanges.keys()),
+            last_update=datetime.now(),
+            failsafe_status=arbitrage_bot.get_failsafe_status(),
+            alerts=arbitrage_bot.get_alerts(10),
+            trades_blocked=arbitrage_bot.trades_blocked,
+            failsafes_triggered=arbitrage_bot.failsafes_triggered
+        )
+        
+        data = {
+            "timestamp": datetime.now().isoformat(),
+            "bot_status": status.dict(),
+            "recent_trades": [trade.dict() for trade in arbitrage_bot.get_recent_trades(10)],
+            "recent_opportunities": [opp.dict() for opp in arbitrage_bot.get_recent_opportunities(10)]
+        }
+        
+        await websocket.send_text(json.dumps(data))
+    except Exception as e:
+        print(f"Error sending initial status: {str(e)}")
+    
     try:
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive_text()
+            try:
+                data = json.loads(message)
+                if data.get("type") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong", "timestamp": datetime.now().isoformat()}))
+            except json.JSONDecodeError:
+                pass  # Ignore invalid JSON
     except WebSocketDisconnect:
         active_connections.remove(websocket)
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+        if websocket in active_connections:
+            active_connections.remove(websocket)
 
 @router.get("/exchanges")
 async def get_supported_exchanges():
@@ -98,7 +143,9 @@ async def disconnect_exchange(exchange_id: str):
 @router.get("/exchanges/connected")
 async def get_connected_exchanges():
     """Get list of connected exchanges."""
-    return {"exchanges": list(exchange_manager.exchanges.keys())}
+    connected = list(exchange_manager.exchanges.keys())
+    print(f"Connected exchanges: {connected}")
+    return {"exchanges": connected}
 
 @router.get("/balances")
 async def get_balances(refresh: bool = False):

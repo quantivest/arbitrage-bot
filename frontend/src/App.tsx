@@ -58,39 +58,91 @@ function App() {
   }, []);
   
   useEffect(() => {
-    const socket = connectWebSocket((data) => {
-      if (data.bot_status) {
-        setBotStatus(data.bot_status);
-      }
+    let socket: WebSocket;
+    let reconnectTimer: number | null = null;
+    let pingInterval: number | null = null;
+    
+    const connectSocket = () => {
+      setWsConnected(false);
       
-      if (data.recent_trades) {
-        const liveTrades = data.recent_trades.filter((trade: ArbitrageTrade) => !trade.is_test);
-        const simulatedTrades = data.recent_trades.filter((trade: ArbitrageTrade) => trade.is_test);
-        
-        if (liveTrades.length > 0) {
-          setTrades((prevTrades: ArbitrageTrade[]) => {
-            const existingIds = new Set(prevTrades.map((t: ArbitrageTrade) => t.id));
-            const newTrades = liveTrades.filter((t: ArbitrageTrade) => !existingIds.has(t.id));
-            return [...newTrades, ...prevTrades].slice(0, 100); // Keep last 100 trades
-          });
+      socket = connectWebSocket(
+        (data) => {
+          if (data.bot_status) {
+            console.log('Received bot status update:', data.bot_status);
+            
+            if (data.bot_status.connected_exchanges) {
+              console.log('Connected exchanges in update:', data.bot_status.connected_exchanges);
+            }
+            
+            setBotStatus(data.bot_status);
+          }
+          
+          if (data.recent_trades) {
+            const liveTrades = data.recent_trades.filter((trade: ArbitrageTrade) => !trade.is_test);
+            const simulatedTrades = data.recent_trades.filter((trade: ArbitrageTrade) => trade.is_test);
+            
+            if (liveTrades.length > 0) {
+              setTrades((prevTrades: ArbitrageTrade[]) => {
+                const existingIds = new Set(prevTrades.map((t: ArbitrageTrade) => t.id));
+                const newTrades = liveTrades.filter((t: ArbitrageTrade) => !existingIds.has(t.id));
+                return [...newTrades, ...prevTrades].slice(0, 100); // Keep last 100 trades
+              });
+            }
+            
+            if (simulatedTrades.length > 0) {
+              setTestTrades((prevTrades: ArbitrageTrade[]) => {
+                const existingIds = new Set(prevTrades.map((t: ArbitrageTrade) => t.id));
+                const newTrades = simulatedTrades.filter((t: ArbitrageTrade) => !existingIds.has(t.id));
+                return [...newTrades, ...prevTrades].slice(0, 100); // Keep last 100 trades
+              });
+            }
+          }
+        },
+        (connected) => {
+          console.log('WebSocket connection status changed:', connected);
+          setWsConnected(connected);
+          
+          if (connected) {
+            botApi.getStatus()
+              .then(status => {
+                console.log('Initial status after WebSocket connection:', status);
+                setBotStatus(status);
+              })
+              .catch(error => {
+                console.error('Failed to fetch initial status:', error);
+              });
+          }
         }
-        
-        if (simulatedTrades.length > 0) {
-          setTestTrades((prevTrades: ArbitrageTrade[]) => {
-            const existingIds = new Set(prevTrades.map((t: ArbitrageTrade) => t.id));
-            const newTrades = simulatedTrades.filter((t: ArbitrageTrade) => !existingIds.has(t.id));
-            return [...newTrades, ...prevTrades].slice(0, 100); // Keep last 100 trades
-          });
+      );
+    };
+    
+    connectSocket();
+    
+    const statusInterval = setInterval(async () => {
+      try {
+        if (!wsConnected) {
+          const statusResponse = await botApi.getStatus();
+          console.log('Polling status update:', statusResponse);
+          setBotStatus(statusResponse);
         }
+      } catch (error) {
+        console.error('Failed to poll status:', error);
       }
-      
-      setWsConnected(true);
-    });
+    }, 5000); // Poll every 5 seconds when WebSocket is down
     
     return () => {
-      socket.close();
+      if (socket) {
+        socket.close();
+      }
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+      if (pingInterval) {
+        window.clearInterval(pingInterval);
+      }
+      clearInterval(statusInterval);
     };
-  }, []);
+  }, [wsConnected]);
   
   useEffect(() => {
     if (botStatus.connected_exchanges.length > 0) {
@@ -111,7 +163,18 @@ function App() {
   }, [botStatus.connected_exchanges]);
   
   const handleBotStatusChange = async (running: boolean) => {
-    setBotStatus((prev: BotStatus) => ({ ...prev, running }));
+    try {
+      const statusResponse = await botApi.getStatus();
+      console.log('Manual status refresh:', statusResponse);
+      
+      setBotStatus((prev: BotStatus) => ({ 
+        ...statusResponse, 
+        running: running !== undefined ? running : prev.running 
+      }));
+    } catch (error) {
+      console.error('Failed to refresh bot status:', error);
+      setBotStatus((prev: BotStatus) => ({ ...prev, running }));
+    }
   };
   
   const handleStartTest = async (settings: TestModeSettings) => {
@@ -210,7 +273,8 @@ function App() {
           {activeTab === 'connect' && (
             <ConnectTab 
               botStatus={botStatus} 
-              onBotStatusChange={handleBotStatusChange} 
+              onBotStatusChange={handleBotStatusChange}
+              wsConnected={wsConnected}
             />
           )}
           
