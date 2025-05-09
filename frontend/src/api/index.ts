@@ -103,4 +103,22 @@ export const botApi = {
   },
   
   getTestBalances: () => apiRequest('/test/balances'),
+  
+  getAlerts: (limit: number = 50) => 
+    apiRequest(`/alerts?limit=${limit}`),
+  
+  reactivatePair: (pair: string) => 
+    apiRequest(`/reactivate/pair/${pair}`, {
+      method: 'POST',
+    }),
+  
+  reactivateExchange: (exchange: string) => 
+    apiRequest(`/reactivate/exchange/${exchange}`, {
+      method: 'POST',
+    }),
+  
+  reactivateGlobal: () => 
+    apiRequest('/reactivate/global', {
+      method: 'POST',
+    }),
 };

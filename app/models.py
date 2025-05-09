@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Literal
 from datetime import datetime
 
 class ExchangeCredentials(BaseModel):
@@ -75,6 +75,24 @@ class TestModeSettings(BaseModel):
     buffer_percentage: float = 0.0001  # 0.01%
     exchanges: List[str] = []
 
+class AlertType(BaseModel):
+    """Model for alert type."""
+    type: Literal["pair_disabled", "exchange_disabled", "global_halt", "partial_fill", "trade_error"]
+    message: str
+    timestamp: datetime
+    entity: Optional[str] = None  # pair or exchange name if applicable
+    can_reactivate: bool = True
+
+class FailsafeStatus(BaseModel):
+    """Model for failsafe status."""
+    disabled_pairs: Dict[str, datetime] = {}  # pair -> disabled_timestamp
+    disabled_exchanges: Dict[str, datetime] = {}  # exchange -> disabled_timestamp
+    global_halt: bool = False
+    global_halt_timestamp: Optional[datetime] = None
+    historical_high_balance: Dict[str, float] = {}  # currency -> amount
+    pair_failure_counts: Dict[str, int] = {}  # pair -> count of recent failures
+    exchange_failure_counts: Dict[str, int] = {}  # exchange -> count of recent failures
+
 class BotStatus(BaseModel):
     """Model for bot status."""
     running: bool = False
@@ -82,3 +100,7 @@ class BotStatus(BaseModel):
     connected_exchanges: List[str] = []
     last_update: Optional[datetime] = None
     error: Optional[str] = None
+    failsafe_status: Optional[FailsafeStatus] = None
+    alerts: List[AlertType] = []
+    trades_blocked: int = 0
+    failsafes_triggered: int = 0
