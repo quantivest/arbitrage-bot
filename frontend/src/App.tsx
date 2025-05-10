@@ -25,6 +25,7 @@ function App() {
   const [testTrades, setTestTrades] = useState<ArbitrageTrade[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [wsReconnecting, setWsReconnecting] = useState(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -58,14 +59,12 @@ function App() {
   }, []);
   
   useEffect(() => {
-    let socket: WebSocket;
-    let reconnectTimer: number | null = null;
-    let pingInterval: number | null = null;
+    let wsConnection: { socket: WebSocket | null; disconnect: () => void; reconnect: () => void } | null = null;
     
     const connectSocket = () => {
       setWsConnected(false);
       
-      socket = connectWebSocket(
+      wsConnection = connectWebSocket(
         (data) => {
           if (data.bot_status) {
             console.log('Received bot status update:', data.bot_status);
@@ -112,6 +111,10 @@ function App() {
                 console.error('Failed to fetch initial status:', error);
               });
           }
+        },
+        (isReconnecting) => {
+          console.log('WebSocket reconnection status changed:', isReconnecting);
+          setWsReconnecting(isReconnecting);
         }
       );
     };
@@ -131,18 +134,12 @@ function App() {
     }, 5000); // Poll every 5 seconds when WebSocket is down
     
     return () => {
-      if (socket) {
-        socket.close();
-      }
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
-      if (pingInterval) {
-        window.clearInterval(pingInterval);
+      if (wsConnection) {
+        wsConnection.disconnect();
       }
       clearInterval(statusInterval);
     };
-  }, [wsConnected]);
+  }, []);
   
   useEffect(() => {
     if (botStatus.connected_exchanges.length > 0) {
@@ -229,9 +226,20 @@ function App() {
               Crypto Arbitrage Bot
             </h1>
             <div className="flex items-center space-x-2">
-              <div className={wsConnected ? "h-3 w-3 rounded-full bg-green-500" : "h-3 w-3 rounded-full bg-red-500"}></div>
+              <div className={
+                wsConnected 
+                  ? "h-3 w-3 rounded-full bg-green-500" 
+                  : wsReconnecting 
+                    ? "h-3 w-3 rounded-full bg-yellow-500 animate-pulse" 
+                    : "h-3 w-3 rounded-full bg-red-500"
+              }></div>
               <span className="text-sm text-gray-400">
-                {wsConnected ? 'Connected' : 'Disconnected'}
+                {wsConnected 
+                  ? 'Connected' 
+                  : wsReconnecting 
+                    ? 'Reconnecting...' 
+                    : 'Disconnected'
+                }
               </span>
             </div>
           </div>
@@ -275,6 +283,7 @@ function App() {
               botStatus={botStatus} 
               onBotStatusChange={handleBotStatusChange}
               wsConnected={wsConnected}
+              wsReconnecting={wsReconnecting}
             />
           )}
           

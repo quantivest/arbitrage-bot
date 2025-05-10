@@ -12,9 +12,10 @@ interface ConnectTabProps {
   botStatus: BotStatus;
   onBotStatusChange: (running: boolean) => void;
   wsConnected?: boolean;
+  wsReconnecting?: boolean;
 }
 
-export default function ConnectTab({ botStatus, onBotStatusChange, wsConnected = false }: ConnectTabProps) {
+export default function ConnectTab({ botStatus, onBotStatusChange, wsConnected = false, wsReconnecting = false }: ConnectTabProps) {
   const [supportedExchanges, setSupportedExchanges] = useState<string[]>([]);
   const [selectedExchange, setSelectedExchange] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>('');
@@ -281,9 +282,21 @@ export default function ConnectTab({ botStatus, onBotStatusChange, wsConnected =
         </div>
         
         <div className="flex items-center space-x-2">
-          <div className={`h-4 w-4 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+          <div className={`h-4 w-4 rounded-full ${
+            wsConnected 
+              ? 'bg-green-500' 
+              : wsReconnecting 
+                ? 'bg-yellow-500 animate-pulse' 
+                : 'bg-red-500'
+          }`}></div>
           <span className="font-medium">
-            WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
+            WebSocket: {
+              wsConnected 
+                ? 'Connected' 
+                : wsReconnecting 
+                  ? 'Reconnecting...' 
+                  : 'Disconnected'
+            }
           </span>
         </div>
       </div>
