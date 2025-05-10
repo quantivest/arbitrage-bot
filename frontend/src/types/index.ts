@@ -71,6 +71,8 @@ export interface TestModeSettings {
   };
   buffer_percentage: number;
   exchanges: string[];
+  usdt_cap?: number;
+  asset_cap?: number;
 }
 
 export interface AlertType {

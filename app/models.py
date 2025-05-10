@@ -74,6 +74,8 @@ class TestModeSettings(BaseModel):
     capital_per_pair: Dict[str, float] = {}  # e.g. {"BTC/USDT": 10.0}
     buffer_percentage: float = 0.0001  # 0.01%
     exchanges: List[str] = []
+    usdt_cap: float = 500.0  # Default USDT capital per exchange
+    asset_cap: float = 100.0  # Default asset capital per pair
 
 class AlertType(BaseModel):
     """Model for alert type."""

@@ -88,6 +88,8 @@ export default function TestModeTab({
         capital_per_pair: capital_per_pair,
         buffer_percentage: bufferPercentage / 100, // Convert from percentage to decimal
         exchanges: selectedExchanges,
+        usdt_cap: usdtCapital,
+        asset_cap: assetCapital,
       };
       
       onStartTest(testSettings);

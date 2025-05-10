@@ -67,47 +67,28 @@ class ArbitrageBot:
         if not exchanges:
             exchanges = list(exchange_manager.exchanges.keys())
         
-        capital_per_pair = test_settings.get('capital_per_pair', {})
+        usdt_cap = test_settings.get('usdt_cap', settings.TEST_MODE_DEFAULT_CAPITAL)
+        asset_cap = test_settings.get('asset_cap', settings.TEST_MODE_DEFAULT_CAPITAL / 5)
+        buffer_percentage = test_settings.get('buffer_percentage', self.buffer_percentage)
         
-        default_capital = settings.TEST_MODE_DEFAULT_CAPITAL
+        print(f"Initializing test balances with USDT cap: ${usdt_cap}, Asset cap: ${asset_cap}")
         
         for exchange in exchanges:
             self.test_balances[exchange] = {
-                'USDT': {'free': 0.0, 'used': 0.0, 'total': 0.0}
+                'USDT': {'free': usdt_cap, 'used': 0.0, 'total': usdt_cap}
             }
             
             for pair in settings.TRADING_PAIRS:
                 base, _ = pair.split('/')
                 if base not in self.test_balances[exchange]:
-                    self.test_balances[exchange][base] = {'free': 0.0, 'used': 0.0, 'total': 0.0}
+                    self.test_balances[exchange][base] = {'free': asset_cap, 'used': 0.0, 'total': asset_cap}
         
-        approx_prices = {
-            'BTC/USDT': 50000,
-            'ETH/USDT': 3000,
-            'SOL/USDT': 100,
-            'AVAX/USDT': 30,
-            'ADA/USDT': 0.5,
-            'LINK/USDT': 15,
-            'MATIC/USDT': 1,
-            'DOGE/USDT': 0.1,
-            'ATOM/USDT': 10,
-            'NEAR/USDT': 5
-        }
-        
-        for pair in settings.TRADING_PAIRS:
-            base, quote = pair.split('/')
+        # Set buffer percentage from test settings
+        if buffer_percentage != self.buffer_percentage:
+            self.buffer_percentage = buffer_percentage
+            print(f"Set buffer percentage to {self.buffer_percentage}")
             
-            capital = capital_per_pair.get(list(capital_per_pair.keys())[0], default_capital) if capital_per_pair else default_capital
-            
-            base_amount = capital / approx_prices.get(pair, 1)
-            
-            for i, exchange in enumerate(exchanges):
-                if i % 2 == 0:  # Even exchanges get base asset
-                    self.test_balances[exchange][base]['free'] += base_amount
-                    self.test_balances[exchange][base]['total'] += base_amount
-                else:  # Odd exchanges get quote asset
-                    self.test_balances[exchange][quote]['free'] += capital
-                    self.test_balances[exchange][quote]['total'] += capital
+        print(f"Test balances initialized for {len(exchanges)} exchanges with {len(settings.TRADING_PAIRS)} trading pairs")
     
     async def _main_loop(self):
         """Main arbitrage detection and execution loop."""
