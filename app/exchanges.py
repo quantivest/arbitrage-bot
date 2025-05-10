@@ -1,6 +1,10 @@
 import ccxt.async_support as ccxt
 import asyncio
 import time
+import base64
+import hashlib
+import hmac
+import json
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from .models import Balance, ExchangeBalance, OrderBook, OrderBookEntry
@@ -22,9 +26,10 @@ class ExchangeManager:
             api_secret = api_secret.strip() if api_secret else ""
             
             key_was_trimmed = False
+            original_key = api_key
+            
             if exchange_id == "gemini":
                 if api_key.startswith("account-"):
-                    original_key = api_key
                     api_key = api_key[8:]  # Remove "account-" prefix
                     key_was_trimmed = True
                     print(f"Gemini API key auto-trimmed from 'account-XXXX' format to 'XXXX' format")
@@ -51,13 +56,39 @@ class ExchangeManager:
                     'public': 'https://api.gemini.com',
                     'private': 'https://api.gemini.com'
                 }
+                exchange_params['options'] = {
+                    'recvWindow': 60000,  # Longer window for requests
+                    'adjustForTimeDifference': True,  # Adjust for time difference
+                    'createMarketBuyOrderRequiresPrice': False,
+                    'enableRateLimit': True,  # Enable rate limiting
+                    'rateLimit': 500  # 500ms between requests (2 requests per second)
+                }
+                exchange_params['nonce'] = lambda: str(int(time.time() * 1000))
             
             if additional_params:
                 exchange_params.update(additional_params)
                 
             exchange = exchange_class(exchange_params)
             
-            await self._test_connection(exchange)
+            if exchange_id == "gemini":
+                try:
+                    print(f"Testing Gemini connection with custom authentication check...")
+                    await self._test_gemini_connection(exchange, api_key, api_secret)
+                except Exception as gemini_error:
+                    print(f"Gemini custom authentication test failed: {str(gemini_error)}")
+                    if key_was_trimmed:
+                        print(f"Retrying Gemini connection with original untrimmed key...")
+                        exchange_params['apiKey'] = original_key
+                        exchange = exchange_class(exchange_params)
+                        try:
+                            await self._test_gemini_connection(exchange, original_key, api_secret)
+                            settings.EXCHANGE_API_KEYS[exchange_id]['api_key'] = original_key
+                            print(f"Gemini connection successful with untrimmed key")
+                        except Exception as retry_error:
+                            print(f"Gemini connection failed with untrimmed key: {str(retry_error)}")
+                            raise retry_error
+            else:
+                await self._test_connection(exchange)
             
             self.exchanges[exchange_id] = exchange
             
@@ -69,6 +100,15 @@ class ExchangeManager:
                 masked_key = "****" + api_key[-4:] if len(api_key) >= 4 else "****"
                 print(f"Error connecting to Gemini: API key used: {masked_key}, Key was trimmed: {key_was_trimmed}")
                 print(f"Full Gemini error: {str(e)}")
+                
+                if "Out-of-sequence nonce" in str(e):
+                    print("Gemini nonce error detected. This usually happens when the nonce is not strictly increasing.")
+                elif "InvalidSignature" in str(e):
+                    print("Gemini signature error detected. This could be due to incorrect API secret or payload formatting.")
+                elif "InvalidApiKey" in str(e):
+                    print("Gemini API key error detected. The API key may be invalid or not have the required permissions.")
+                elif "MissingApikeyHeader" in str(e) or "MissingPayloadHeader" in str(e) or "MissingSignatureHeader" in str(e):
+                    print("Gemini authentication header error. Required headers are missing.")
             else:
                 print(f"Error connecting to {exchange_id}: {str(e)}")
             return False
@@ -79,6 +119,44 @@ class ExchangeManager:
             await exchange.fetch_balance()
             return True
         return False
+        
+    async def _test_gemini_connection(self, exchange, api_key, api_secret) -> bool:
+        """Test Gemini connection with custom authentication."""
+        try:
+            if exchange.has['fetchBalance']:
+                balance_data = await exchange.fetch_balance()
+                print(f"Gemini balance fetch successful: {len(balance_data.keys())} currencies found")
+                return True
+                
+            endpoint = '/v1/balances'
+            nonce = str(int(time.time() * 1000))
+            
+            payload = {
+                'request': endpoint,
+                'nonce': nonce
+            }
+            
+            encoded_payload = base64.b64encode(json.dumps(payload).encode())
+            signature = hmac.new(api_secret.encode(), encoded_payload, hashlib.sha384).hexdigest()
+            
+            headers = {
+                'Content-Type': 'text/plain',
+                'X-GEMINI-APIKEY': api_key,
+                'X-GEMINI-PAYLOAD': encoded_payload.decode(),
+                'X-GEMINI-SIGNATURE': signature,
+                'Cache-Control': 'no-cache'
+            }
+            
+            url = 'https://api.gemini.com' + endpoint
+            print(f"Testing Gemini connection with custom request to {url}")
+            
+            response = await exchange.fetch(url, 'POST', headers, body=encoded_payload)
+            print(f"Gemini custom test response: {response[:100]}..." if len(str(response)) > 100 else response)
+            
+            return True
+        except Exception as e:
+            print(f"Gemini custom test failed: {str(e)}")
+            raise e
     
     async def disconnect_exchange(self, exchange_id: str) -> bool:
         """Disconnect from an exchange."""
@@ -107,7 +185,65 @@ class ExchangeManager:
                 try:
                     print(f"Fetching balance for {ex_id}...")
                     exchange = self.exchanges[ex_id]
-                    balance_data = await exchange.fetch_balance()
+                    
+                    if ex_id == "gemini":
+                        print(f"Using special handling for Gemini balance fetch...")
+                        try:
+                            balance_data = await exchange.fetch_balance()
+                            print(f"Gemini standard balance fetch successful: {len(balance_data.keys())} currencies found")
+                        except Exception as gemini_error:
+                            print(f"Gemini standard balance fetch failed: {str(gemini_error)}")
+                            
+                            try:
+                                print("Attempting custom Gemini balance fetch...")
+                                
+                                api_key = settings.EXCHANGE_API_KEYS[ex_id]['api_key']
+                                api_secret = settings.EXCHANGE_API_KEYS[ex_id]['api_secret']
+                                
+                                if not api_key.startswith("account-"):
+                                    print("Adding 'account-' prefix for Gemini API key in custom balance fetch")
+                                    api_key = f"account-{api_key}"
+                                
+                                endpoint = '/v1/balances'
+                                nonce = str(int(time.time() * 1000))
+                                
+                                payload = {
+                                    'request': endpoint,
+                                    'nonce': nonce
+                                }
+                                
+                                encoded_payload = base64.b64encode(json.dumps(payload).encode())
+                                signature = hmac.new(api_secret.encode(), encoded_payload, hashlib.sha384).hexdigest()
+                                
+                                headers = {
+                                    'Content-Type': 'text/plain',
+                                    'X-GEMINI-APIKEY': api_key,
+                                    'X-GEMINI-PAYLOAD': encoded_payload.decode(),
+                                    'X-GEMINI-SIGNATURE': signature,
+                                    'Cache-Control': 'no-cache'
+                                }
+                                
+                                url = 'https://api.gemini.com' + endpoint
+                                print(f"Sending custom Gemini balance request to {url}")
+                                
+                                response = await exchange.fetch(url, 'POST', headers, body=encoded_payload)
+                                print(f"Gemini custom balance response: {response[:100]}..." if len(str(response)) > 100 else response)
+                                
+                                balance_data = {'info': response}
+                                for item in response:
+                                    currency = item['currency']
+                                    balance_data[currency] = {
+                                        'free': float(item['available']),
+                                        'used': float(item['amount']) - float(item['available']),
+                                        'total': float(item['amount'])
+                                    }
+                                
+                                print(f"Gemini custom balance fetch successful: {len(balance_data.keys())-1} currencies found")
+                            except Exception as custom_error:
+                                print(f"Gemini custom balance fetch also failed: {str(custom_error)}")
+                                raise custom_error
+                    else:
+                        balance_data = await exchange.fetch_balance()
                     
                     balances = {}
                     for asset in assets:
@@ -125,7 +261,18 @@ class ExchangeManager:
                     results.append(exchange_balance)
                     print(f"Successfully fetched balance for {ex_id}")
                 except Exception as e:
-                    print(f"Error fetching balance from {ex_id}: {str(e)}")
+                    if ex_id == "gemini":
+                        print(f"Error fetching balance from Gemini: {str(e)}")
+                        if "Out-of-sequence nonce" in str(e):
+                            print("Gemini nonce error in balance fetch. This usually happens when the nonce is not strictly increasing.")
+                        elif "InvalidSignature" in str(e):
+                            print("Gemini signature error in balance fetch. This could be due to incorrect API secret or payload formatting.")
+                        elif "InvalidApiKey" in str(e):
+                            print("Gemini API key error in balance fetch. The API key may be invalid or not have the required permissions.")
+                        elif "MissingApikeyHeader" in str(e) or "MissingPayloadHeader" in str(e) or "MissingSignatureHeader" in str(e):
+                            print("Gemini authentication header error in balance fetch. Required headers are missing.")
+                    else:
+                        print(f"Error fetching balance from {ex_id}: {str(e)}")
         
         return results
     
