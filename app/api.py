@@ -128,6 +128,10 @@ async def connect_exchange(credentials: ExchangeCredentials):
     if credentials.exchange not in settings.SUPPORTED_EXCHANGES:
         raise HTTPException(status_code=400, detail=f"Exchange {credentials.exchange} not supported")
     
+    if credentials.exchange in exchange_manager.exchanges:
+        print(f"Exchange {credentials.exchange} already connected, disconnecting first for clean reconnection")
+        await exchange_manager.disconnect_exchange(credentials.exchange)
+    
     success = await exchange_manager.connect_exchange(
         credentials.exchange, 
         credentials.api_key, 
@@ -138,7 +142,15 @@ async def connect_exchange(credentials: ExchangeCredentials):
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to connect to {credentials.exchange}")
     
-    await exchange_manager.fetch_balances(credentials.exchange)
+    try:
+        await exchange_manager.fetch_balances(credentials.exchange)
+        print(f"Successfully fetched balances for {credentials.exchange} after connection")
+    except Exception as e:
+        print(f"Warning: Connected to {credentials.exchange} but failed to fetch balances: {str(e)}")
+    
+    if credentials.exchange not in exchange_manager.exchanges:
+        print(f"Warning: Exchange {credentials.exchange} not found in exchange_manager after connection")
+        raise HTTPException(status_code=500, detail=f"Exchange {credentials.exchange} connection was lost")
     
     return {"status": "connected", "exchange": credentials.exchange}
 
@@ -157,6 +169,11 @@ async def get_connected_exchanges():
     """Get list of connected exchanges."""
     connected = list(exchange_manager.exchanges.keys())
     print(f"Connected exchanges: {connected}")
+    
+    for exchange_id in connected:
+        if exchange_id not in exchange_manager.exchanges:
+            print(f"Warning: Exchange {exchange_id} is in the connected list but not in exchange_manager.exchanges")
+    
     return {"exchanges": connected}
 
 @router.get("/balances")

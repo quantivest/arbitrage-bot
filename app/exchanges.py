@@ -22,11 +22,13 @@ class ExchangeManager:
             api_secret = api_secret.strip() if api_secret else ""
             
             key_was_trimmed = False
-            if exchange_id == "gemini" and api_key.startswith("account-"):
-                original_key = api_key
-                api_key = api_key[8:]  # Remove "account-" prefix
-                key_was_trimmed = True
-                print(f"Gemini API key auto-trimmed from 'account-XXXX' format to 'XXXX' format")
+            if exchange_id == "gemini":
+                if api_key.startswith("account-"):
+                    original_key = api_key
+                    api_key = api_key[8:]  # Remove "account-" prefix
+                    key_was_trimmed = True
+                    print(f"Gemini API key auto-trimmed from 'account-XXXX' format to 'XXXX' format")
+                print(f"Setting up Gemini connection with API key: {'*' * (len(api_key) - 4) + api_key[-4:] if len(api_key) >= 4 else '****'}")
             
             if exchange_id not in settings.EXCHANGE_API_KEYS:
                 settings.EXCHANGE_API_KEYS[exchange_id] = {}
@@ -44,7 +46,11 @@ class ExchangeManager:
             }
             
             if exchange_id == "gemini":
-                exchange_params['urls'] = {'api': 'https://api.gemini.com'}
+                exchange_params['urls'] = {
+                    'api': 'https://api.gemini.com',
+                    'public': 'https://api.gemini.com',
+                    'private': 'https://api.gemini.com'
+                }
             
             if additional_params:
                 exchange_params.update(additional_params)
