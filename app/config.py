@@ -8,8 +8,8 @@ load_dotenv()
 class Settings(BaseSettings):
     """Application settings."""
     TRADING_PAIRS: List[str] = [
-        "BTC/USDT", "ETH/USDT", "SOL/USDT", "AVAX/USDT", "ADA/USDT",
-        "LINK/USDT", "MATIC/USDT", "DOGE/USDT", "ATOM/USDT", "NEAR/USDT"
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "DOGE/USDT",
+        "XRP/USDT", "DOT/USDT", "LTC/USDT", "LINK/USDT", "MATIC/USDT"
     ]
     
     SUPPORTED_EXCHANGES: List[str] = [

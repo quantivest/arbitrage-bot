@@ -75,8 +75,8 @@ export default function TestModeTab({
       
       const capital_per_pair = {};
       const tradingPairs = [
-        "BTC/USDT", "ETH/USDT", "SOL/USDT", "AVAX/USDT", "ADA/USDT",
-        "LINK/USDT", "MATIC/USDT", "DOGE/USDT", "ATOM/USDT", "NEAR/USDT"
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "DOGE/USDT",
+        "XRP/USDT", "DOT/USDT", "LTC/USDT", "LINK/USDT", "MATIC/USDT"
       ];
       
       tradingPairs.forEach(pair => {

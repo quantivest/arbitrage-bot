@@ -178,7 +178,6 @@ function App() {
     try {
       await botApi.startBot(true, settings);
       setBotStatus((prev: BotStatus) => ({ ...prev, running: true, test_mode: true }));
-      setActiveTab('dashboard');
     } catch (error: any) {
       setError(error.message || 'Failed to start test mode');
     }
