@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { ArbitrageTrade, ExchangeBalance, BotStatus } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
@@ -248,49 +248,115 @@ export default function DashboardTab({ trades, balances, isTestMode, botStatus, 
             <CardTitle>Exchange Balances</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Desktop view - horizontal table */}
+            {/* Desktop view - horizontal table with exchanges as columns */}
             <div className="overflow-x-auto hidden md:block">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-[#4A4A4F]">
-                    <th className="text-left py-2 text-white">Exchange</th>
-                    <th className="text-right py-2 text-white">BTC</th>
-                    <th className="text-right py-2 text-white">ETH</th>
-                    <th className="text-right py-2 text-white">SOL</th>
-                    <th className="text-right py-2 text-white">USDT</th>
+                    <th className="text-left py-2 text-white">Asset</th>
+                    {balances.map((balance) => (
+                      <th key={balance.exchange} className="text-right py-2 text-white">{balance.exchange}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {balances.map((balance) => (
-                    <tr key={balance.exchange} className="border-b border-[#4A4A4F]">
-                      <td className="py-2 text-white">{balance.exchange}</td>
-                      <td className="text-right py-2 text-white">{balance.balances.BTC?.total.toFixed(6) || '0.000000'}</td>
-                      <td className="text-right py-2 text-white">{balance.balances.ETH?.total.toFixed(6) || '0.000000'}</td>
-                      <td className="text-right py-2 text-white">{balance.balances.SOL?.total.toFixed(6) || '0.000000'}</td>
-                      <td className="text-right py-2 text-white">{balance.balances.USDT?.total.toFixed(2) || '0.00'}</td>
-                    </tr>
-                  ))}
+                  {/* BTC row */}
+                  <tr className="border-b border-[#4A4A4F]">
+                    <td className="py-2 text-white">BTC</td>
+                    {balances.map((balance) => (
+                      <td key={balance.exchange} className="text-right py-2 text-white">
+                        {balance.balances.BTC?.total.toFixed(6) || '0.000000'}
+                      </td>
+                    ))}
+                  </tr>
+                  {/* ETH row */}
+                  <tr className="border-b border-[#4A4A4F]">
+                    <td className="py-2 text-white">ETH</td>
+                    {balances.map((balance) => (
+                      <td key={balance.exchange} className="text-right py-2 text-white">
+                        {balance.balances.ETH?.total.toFixed(6) || '0.000000'}
+                      </td>
+                    ))}
+                  </tr>
+                  {/* SOL row */}
+                  <tr className="border-b border-[#4A4A4F]">
+                    <td className="py-2 text-white">SOL</td>
+                    {balances.map((balance) => (
+                      <td key={balance.exchange} className="text-right py-2 text-white">
+                        {balance.balances.SOL?.total.toFixed(6) || '0.000000'}
+                      </td>
+                    ))}
+                  </tr>
+                  {/* USDT row */}
+                  <tr className="border-b border-[#4A4A4F]">
+                    <td className="py-2 text-white">USDT</td>
+                    {balances.map((balance) => (
+                      <td key={balance.exchange} className="text-right py-2 text-white">
+                        {balance.balances.USDT?.total.toFixed(2) || '0.00'}
+                      </td>
+                    ))}
+                  </tr>
                 </tbody>
               </table>
+              {balances.length === 0 && (
+                <div className="text-center py-4 text-white">No balances available</div>
+              )}
             </div>
             
-            {/* Mobile view - vertical cards */}
+            {/* Mobile view - vertical cards by asset */}
             <div className="md:hidden space-y-4">
-              {balances.map((balance) => (
-                <div key={balance.exchange} className="p-3 border border-[#4A4A4F] rounded-md">
-                  <div className="font-medium text-white mb-2">{balance.exchange}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="text-gray-400">BTC:</div>
-                    <div className="text-right text-white">{balance.balances.BTC?.total.toFixed(6) || '0.000000'}</div>
-                    <div className="text-gray-400">ETH:</div>
-                    <div className="text-right text-white">{balance.balances.ETH?.total.toFixed(6) || '0.000000'}</div>
-                    <div className="text-gray-400">SOL:</div>
-                    <div className="text-right text-white">{balance.balances.SOL?.total.toFixed(6) || '0.000000'}</div>
-                    <div className="text-gray-400">USDT:</div>
-                    <div className="text-right text-white">{balance.balances.USDT?.total.toFixed(2) || '0.00'}</div>
-                  </div>
+              {/* BTC card */}
+              <div className="p-3 border border-[#4A4A4F] rounded-md">
+                <div className="font-medium text-white mb-2">BTC</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {balances.map((balance) => (
+                    <div key={balance.exchange} className="contents">
+                      <div className="text-gray-400">{balance.exchange}:</div>
+                      <div className="text-right text-white">{balance.balances.BTC?.total.toFixed(6) || '0.000000'}</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+              
+              {/* ETH card */}
+              <div className="p-3 border border-[#4A4A4F] rounded-md">
+                <div className="font-medium text-white mb-2">ETH</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {balances.map((balance) => (
+                    <div key={balance.exchange} className="contents">
+                      <div className="text-gray-400">{balance.exchange}:</div>
+                      <div className="text-right text-white">{balance.balances.ETH?.total.toFixed(6) || '0.000000'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* SOL card */}
+              <div className="p-3 border border-[#4A4A4F] rounded-md">
+                <div className="font-medium text-white mb-2">SOL</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {balances.map((balance) => (
+                    <div key={balance.exchange} className="contents">
+                      <div className="text-gray-400">{balance.exchange}:</div>
+                      <div className="text-right text-white">{balance.balances.SOL?.total.toFixed(6) || '0.000000'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* USDT card */}
+              <div className="p-3 border border-[#4A4A4F] rounded-md">
+                <div className="font-medium text-white mb-2">USDT</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {balances.map((balance) => (
+                    <div key={balance.exchange} className="contents">
+                      <div className="text-gray-400">{balance.exchange}:</div>
+                      <div className="text-right text-white">{balance.balances.USDT?.total.toFixed(2) || '0.00'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
               {balances.length === 0 && (
                 <div className="text-center py-4 text-white">No balances available</div>
               )}
