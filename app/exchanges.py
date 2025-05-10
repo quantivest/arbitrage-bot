@@ -59,7 +59,9 @@ class ExchangeManager:
                 exchange_params['options'] = {
                     'recvWindow': 60000,  # Longer window for requests
                     'adjustForTimeDifference': True,  # Adjust for time difference
-                    'createMarketBuyOrderRequiresPrice': False
+                    'createMarketBuyOrderRequiresPrice': False,
+                    'enableRateLimit': True,  # Enable rate limiting
+                    'rateLimit': 500  # 500ms between requests (2 requests per second)
                 }
                 exchange_params['nonce'] = lambda: str(int(time.time() * 1000))
             
