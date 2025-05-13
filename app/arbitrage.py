@@ -263,18 +263,21 @@ class ArbitrageBot:
         sell_order_book = await exchange_manager.fetch_order_book(opportunity.sell_exchange, opportunity.symbol)
         
         if not buy_order_book or not sell_order_book:
+            print(f"Missing order book for {opportunity.symbol} on {opportunity.buy_exchange} or {opportunity.sell_exchange}")
             return
         
         buy_book_time = datetime.fromisoformat(buy_order_book.timestamp)
         sell_book_time = datetime.fromisoformat(sell_order_book.timestamp)
         if (datetime.now() - buy_book_time > timedelta(seconds=2) or 
             datetime.now() - sell_book_time > timedelta(seconds=2)):
+            print(f"Order book too old for {opportunity.symbol} on {opportunity.buy_exchange} or {opportunity.sell_exchange}")
             return
         
         current_buy_price = buy_order_book.asks[0].price if buy_order_book.asks else None
         current_sell_price = sell_order_book.bids[0].price if sell_order_book.bids else None
         
         if not current_buy_price or not current_sell_price:
+            print(f"Missing price data for {opportunity.symbol} on {opportunity.buy_exchange} or {opportunity.sell_exchange}")
             return
         
         current_spread = (current_sell_price - current_buy_price) / current_buy_price
@@ -284,9 +287,11 @@ class ArbitrageBot:
         
         if current_spread <= total_cost:
             self.trades_blocked += 1
+            print(f"Spread {current_spread:.4f} too small compared to costs {total_cost:.4f} for {opportunity.symbol}")
             return
         
         try:
+            print(f"Executing buy order for {trade_amount} {opportunity.symbol} on {opportunity.buy_exchange} at {current_buy_price}")
             buy_order = await exchange_manager.execute_trade(
                 opportunity.buy_exchange,
                 opportunity.symbol,
@@ -297,15 +302,33 @@ class ArbitrageBot:
             )
             
             if not buy_order:
+                print(f"Buy order failed for {opportunity.symbol} on {opportunity.buy_exchange}")
                 self._increment_failure_count(opportunity.buy_exchange, opportunity.symbol)
                 return
+            
+            buy_status = buy_order.get('status', 'unknown')
+            buy_filled = float(buy_order.get('filled', 0))
+            buy_remaining = float(buy_order.get('remaining', 0))
+            buy_amount = float(buy_order.get('amount', 0))
+            
+            print(f"Buy order status: {buy_status}, filled: {buy_filled}, remaining: {buy_remaining}, amount: {buy_amount}")
+            
+            if buy_status not in ['closed', 'filled', 'open'] or buy_filled <= 0:
+                print(f"Buy order has invalid status or zero fill: {buy_status}")
+                self._increment_failure_count(opportunity.buy_exchange, opportunity.symbol)
+                return
+            
+            # Calculate fill percentage
+            buy_fill_percentage = buy_filled / buy_amount if buy_amount > 0 else 0
+            
+            is_buy_partial = buy_fill_percentage < 0.95 and buy_fill_percentage > 0
             
             buy_trade = Trade(
                 id=buy_order['id'],
                 exchange=opportunity.buy_exchange,
                 symbol=opportunity.symbol,
                 side='buy',
-                amount=float(buy_order['amount']),
+                amount=float(buy_filled),  # Use filled amount, not requested amount
                 price=float(buy_order['price']),
                 cost=float(buy_order['cost']),
                 fee=float(buy_order['fee']['cost']) if 'fee' in buy_order and buy_order['fee'] else 0.0,
@@ -313,11 +336,14 @@ class ArbitrageBot:
                 is_test=self.test_mode
             )
             
+            adjusted_sell_amount = buy_filled
+            
+            print(f"Executing sell order for {adjusted_sell_amount} {opportunity.symbol} on {opportunity.sell_exchange} at {current_sell_price}")
             sell_order = await exchange_manager.execute_trade(
                 opportunity.sell_exchange,
                 opportunity.symbol,
                 'sell',
-                trade_amount,
+                adjusted_sell_amount,
                 current_sell_price,
                 self.test_mode
             )
@@ -325,6 +351,7 @@ class ArbitrageBot:
             if not sell_order:
                 buy_time = datetime.fromisoformat(str(buy_trade.timestamp))
                 if datetime.now() - buy_time <= timedelta(seconds=2):
+                    print(f"First sell attempt failed, trying with updated price")
                     latest_sell_book = await exchange_manager.fetch_order_book(opportunity.sell_exchange, opportunity.symbol)
                     if latest_sell_book and latest_sell_book.bids:
                         latest_sell_price = latest_sell_book.bids[0].price
@@ -334,31 +361,127 @@ class ArbitrageBot:
                                 opportunity.sell_exchange,
                                 opportunity.symbol,
                                 'sell',
-                                trade_amount,
+                                adjusted_sell_amount,
                                 latest_sell_price,
                                 self.test_mode
                             )
                 
                 if not sell_order:
+                    print(f"Sell order failed for {opportunity.symbol} on {opportunity.sell_exchange}, attempting to unwind buy position")
                     self._increment_failure_count(opportunity.sell_exchange, opportunity.symbol)
                     
                     self.alerts.append(AlertType(
                         type="partial_fill",
-                        message=f"Partial fill: Buy executed on {opportunity.buy_exchange} but sell failed on {opportunity.sell_exchange} for {opportunity.symbol}",
+                        message=f"Partial fill: Buy executed on {opportunity.buy_exchange} but sell failed on {opportunity.sell_exchange} for {opportunity.symbol}. Attempting to unwind buy position.",
                         timestamp=datetime.now(),
                         entity=opportunity.symbol,
                         can_reactivate=False
                     ))
                     
                     self.failsafes_triggered += 1
+                    
+                    try:
+                        print(f"Unwinding: Selling {buy_filled} {opportunity.symbol} on {opportunity.buy_exchange}")
+                        unwind_order = await exchange_manager.execute_trade(
+                            opportunity.buy_exchange,
+                            opportunity.symbol,
+                            'sell',
+                            buy_filled,
+                            current_buy_price * 0.995,  # Slight discount to ensure execution
+                            self.test_mode
+                        )
+                        
+                        if unwind_order:
+                            print(f"Successfully unwound buy position on {opportunity.buy_exchange}")
+                            self.alerts.append(AlertType(
+                                type="unwind_success",
+                                message=f"Successfully unwound buy position for {opportunity.symbol} on {opportunity.buy_exchange}",
+                                timestamp=datetime.now(),
+                                entity=opportunity.symbol,
+                                can_reactivate=False
+                            ))
+                        else:
+                            print(f"Failed to unwind buy position on {opportunity.buy_exchange}")
+                            self.alerts.append(AlertType(
+                                type="unwind_failure",
+                                message=f"Failed to unwind buy position for {opportunity.symbol} on {opportunity.buy_exchange}. MANUAL INTERVENTION REQUIRED.",
+                                timestamp=datetime.now(),
+                                entity=opportunity.symbol,
+                                can_reactivate=False
+                            ))
+                    except Exception as unwind_error:
+                        print(f"Error unwinding buy position: {str(unwind_error)}")
+                        self.alerts.append(AlertType(
+                            type="unwind_error",
+                            message=f"Error unwinding buy position for {opportunity.symbol} on {opportunity.buy_exchange}: {str(unwind_error)}. MANUAL INTERVENTION REQUIRED.",
+                            timestamp=datetime.now(),
+                            entity=opportunity.symbol,
+                            can_reactivate=False
+                        ))
+                    
                     return
+            
+            sell_status = sell_order.get('status', 'unknown')
+            sell_filled = float(sell_order.get('filled', 0))
+            sell_remaining = float(sell_order.get('remaining', 0))
+            sell_amount = float(sell_order.get('amount', 0))
+            
+            print(f"Sell order status: {sell_status}, filled: {sell_filled}, remaining: {sell_remaining}, amount: {sell_amount}")
+            
+            if sell_status not in ['closed', 'filled', 'open'] or sell_filled <= 0:
+                print(f"Sell order has invalid status or zero fill: {sell_status}")
+                self._increment_failure_count(opportunity.sell_exchange, opportunity.symbol)
+                
+                try:
+                    remaining_to_unwind = buy_filled - sell_filled
+                    if remaining_to_unwind > 0:
+                        print(f"Unwinding remaining: Selling {remaining_to_unwind} {opportunity.symbol} on {opportunity.buy_exchange}")
+                        unwind_order = await exchange_manager.execute_trade(
+                            opportunity.buy_exchange,
+                            opportunity.symbol,
+                            'sell',
+                            remaining_to_unwind,
+                            current_buy_price * 0.995,  # Slight discount to ensure execution
+                            self.test_mode
+                        )
+                        
+                        if unwind_order:
+                            print(f"Successfully unwound remaining buy position on {opportunity.buy_exchange}")
+                        else:
+                            print(f"Failed to unwind remaining buy position on {opportunity.buy_exchange}")
+                            self.alerts.append(AlertType(
+                                type="unwind_failure",
+                                message=f"Failed to unwind remaining buy position for {opportunity.symbol} on {opportunity.buy_exchange}. MANUAL INTERVENTION REQUIRED.",
+                                timestamp=datetime.now(),
+                                entity=opportunity.symbol,
+                                can_reactivate=False
+                            ))
+                except Exception as unwind_error:
+                    print(f"Error unwinding remaining buy position: {str(unwind_error)}")
+                
+                return
+            
+            # Calculate sell fill percentage
+            sell_fill_percentage = sell_filled / sell_amount if sell_amount > 0 else 0
+            
+            is_sell_partial = sell_fill_percentage < 0.95 and sell_fill_percentage > 0
+            
+            if is_buy_partial or is_sell_partial:
+                print(f"Partial fill detected: Buy {buy_fill_percentage:.2%}, Sell {sell_fill_percentage:.2%}")
+                self.alerts.append(AlertType(
+                    type="partial_fill",
+                    message=f"Partial fill detected for {opportunity.symbol}: Buy filled {buy_fill_percentage:.2%}, Sell filled {sell_fill_percentage:.2%}",
+                    timestamp=datetime.now(),
+                    entity=opportunity.symbol,
+                    can_reactivate=False
+                ))
             
             sell_trade = Trade(
                 id=sell_order['id'],
                 exchange=opportunity.sell_exchange,
                 symbol=opportunity.symbol,
                 side='sell',
-                amount=float(sell_order['amount']),
+                amount=float(sell_filled),  # Use filled amount, not requested amount
                 price=float(sell_order['price']),
                 cost=float(sell_order['cost']),
                 fee=float(sell_order['fee']['cost']) if 'fee' in sell_order and sell_order['fee'] else 0.0,
@@ -366,13 +489,27 @@ class ArbitrageBot:
                 is_test=self.test_mode
             )
             
+            amount_mismatch = abs(buy_trade.amount - sell_trade.amount) / buy_trade.amount if buy_trade.amount > 0 else 0
+            if amount_mismatch > 0.01:  # More than 1% difference
+                print(f"Amount mismatch: Buy {buy_trade.amount}, Sell {sell_trade.amount}, Difference {amount_mismatch:.2%}")
+                self.alerts.append(AlertType(
+                    type="amount_mismatch",
+                    message=f"Amount mismatch for {opportunity.symbol}: Buy {buy_trade.amount}, Sell {sell_trade.amount}, Difference {amount_mismatch:.2%}",
+                    timestamp=datetime.now(),
+                    entity=opportunity.symbol,
+                    can_reactivate=False
+                ))
+            
             profit = sell_trade.cost - buy_trade.cost - sell_trade.fee - buy_trade.fee
             profit_percentage = profit / buy_trade.cost * 100
             
             expected_profit_percentage = (current_spread - total_cost) * 100
             profit_mismatch = abs(profit_percentage - expected_profit_percentage)
             
+            print(f"Trade completed: Profit {profit:.2f} ({profit_percentage:.2f}%), Expected {expected_profit_percentage:.2f}%")
+            
             if profit_mismatch > 0.5:
+                print(f"Profit mismatch: Expected {expected_profit_percentage:.2f}%, got {profit_percentage:.2f}%")
                 self.failsafe_status.disabled_pairs[opportunity.symbol] = datetime.now().isoformat()
                 self.alerts.append(AlertType(
                     type="pair_disabled",
@@ -411,6 +548,8 @@ class ArbitrageBot:
             return arbitrage_trade
         except Exception as e:
             print(f"Error executing arbitrage: {str(e)}")
+            import traceback
+            traceback.print_exc()
             self._increment_failure_count(opportunity.buy_exchange, opportunity.symbol)
             self._increment_failure_count(opportunity.sell_exchange, opportunity.symbol)
             
