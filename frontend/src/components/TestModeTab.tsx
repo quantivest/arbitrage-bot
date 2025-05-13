@@ -1,528 +1,382 @@
-import { useState, useEffect } from 'react';
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Slider } from './ui/slider';
-import { Label } from './ui/label';
-import { Alert, AlertDescription } from './ui/alert';
-import { ArbitrageTrade, BotStatus, TestModeSettings } from '../types';
-import { AlertCircle, Play, Square } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { useState, useEffect, useMemo } from "react";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "./ui/card";
+import { Slider } from "./ui/slider";
+import { Label } from "./ui/label";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { ArbitrageTrade, TestModeSettings, AlertMessage, FailsafeStatusData, TestSimulationStatusPayload } from "../types";
+import { AlertCircle, Play, StopCircle, CheckCircle, Zap, Info, Settings, BarChartHorizontalBig, PercentSquare } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { ScrollArea } from "./ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { formatDistanceToNow } from "date-fns";
+import { Badge } from "./ui/badge";
 
-const STORAGE_KEY_ASSET_CAPITAL = 'arbitrage-bot-asset-capital';
-const STORAGE_KEY_BUFFER_PERCENTAGE = 'arbitrage-bot-buffer-percentage';
-const STORAGE_KEY_USDT_CAPITAL = 'arbitrage-bot-usdt-capital';
-const STORAGE_KEY_SELECTED_EXCHANGES = 'arbitrage-bot-selected-exchanges';
+// Persist settings in localStorage
+const STORAGE_KEY_USDT_CAPITAL = "testMode_usdtCapital_v3";
+const STORAGE_KEY_ASSET_CAPITAL = "testMode_assetCapital_v3";
+const STORAGE_KEY_BUFFER_PERCENTAGE = "testMode_bufferPercentage_v3";
+const STORAGE_KEY_SELECTED_EXCHANGES = "testMode_selectedExchanges_v3";
+
+// Defined trading pairs as per user request (for UI context, backend uses config)
+const TARGET_TRADING_PAIRS = [
+  "BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "XRP/USDT",
+  "LTC/USDT", "DOT/USDT", "LINK/USDT", "BNB/USDT", "DOGE/USDT"
+];
 
 interface TestModeTabProps {
-  botStatus: BotStatus;
+  testSimulationStatus: TestSimulationStatusPayload | null;
   supportedExchanges: string[];
   testTrades: ArbitrageTrade[];
-  onStartTest: (settings: TestModeSettings) => void;
-  onStopTest: () => void;
+  onBotAction: (action: "start_test" | "stop", settings?: TestModeSettings) => Promise<void>;
+  alerts: AlertMessage[];
+  failsafeStatus: FailsafeStatusData | null; 
 }
 
-export default function TestModeTab({ 
-  botStatus, 
-  supportedExchanges, 
-  testTrades, 
-  onStartTest, 
-  onStopTest 
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-gray-700/80 backdrop-blur-sm p-3 rounded-md border border-gray-600 shadow-lg">
+        <p className="label text-sm text-gray-300">{`Time: ${label}`}</p>
+        {payload.map((pld: any, index: number) => (
+          <p key={index} style={{ color: pld.color }} className="text-sm">
+            {`${pld.name}: ${pld.dataKey === "profit_percentage" ? pld.value.toFixed(4) + "%" : pld.dataKey === "profit_quote" ? "$" + pld.value.toFixed(2) : pld.value}`}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
+
+export default function TestModeTab({
+  testSimulationStatus,
+  supportedExchanges,
+  testTrades,
+  onBotAction,
+  alerts,
+  failsafeStatus, // Failsafe status might be relevant to show even in test mode context
 }: TestModeTabProps) {
-  const [assetCapital, setAssetCapital] = useState<number>(50);
+  const [usdtCapitalPerExchange, setUsdtCapitalPerExchange] = useState<number>(1000);
+  const [assetCapitalPerPairPerExchange, setAssetCapitalPerPairPerExchange] = useState<number>(10);
   const [bufferPercentage, setBufferPercentage] = useState<number>(0.01);
-  const [usdtCapital, setUsdtCapital] = useState<number>(50);
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [profitChartData, setProfitChartData] = useState<any[]>([]);
-  const [winRateData, setWinRateData] = useState<any[]>([]);
-  
+
+  const isSimulationRunning = testSimulationStatus?.status === "RUNNING" || testSimulationStatus?.status === "STARTING";
+
   useEffect(() => {
-    const savedAssetCapital = localStorage.getItem(STORAGE_KEY_ASSET_CAPITAL);
-    const savedBufferPercentage = localStorage.getItem(STORAGE_KEY_BUFFER_PERCENTAGE);
-    const savedUsdtCapital = localStorage.getItem(STORAGE_KEY_USDT_CAPITAL);
-    const savedSelectedExchanges = localStorage.getItem(STORAGE_KEY_SELECTED_EXCHANGES);
+    const savedUsdt = localStorage.getItem(STORAGE_KEY_USDT_CAPITAL);
+    const savedAsset = localStorage.getItem(STORAGE_KEY_ASSET_CAPITAL);
+    const savedBuffer = localStorage.getItem(STORAGE_KEY_BUFFER_PERCENTAGE);
+    const savedExchanges = localStorage.getItem(STORAGE_KEY_SELECTED_EXCHANGES);
+
+    if (savedUsdt) setUsdtCapitalPerExchange(Number(savedUsdt));
+    if (savedAsset) setAssetCapitalPerPairPerExchange(Number(savedAsset));
+    if (savedBuffer) setBufferPercentage(Number(savedBuffer));
     
-    if (savedAssetCapital) {
-      setAssetCapital(Number(savedAssetCapital));
-    }
-    
-    if (savedBufferPercentage) {
-      setBufferPercentage(Number(savedBufferPercentage));
-    }
-    
-    if (savedUsdtCapital) {
-      setUsdtCapital(Number(savedUsdtCapital));
-    }
-    
-    if (savedSelectedExchanges) {
+    if (savedExchanges) {
       try {
-        const parsedExchanges = JSON.parse(savedSelectedExchanges);
-        if (Array.isArray(parsedExchanges) && parsedExchanges.length > 0) {
-          const validExchanges = parsedExchanges.filter(exchange => 
-            supportedExchanges.includes(exchange)
-          );
-          
-          if (validExchanges.length >= 2) {
-            setSelectedExchanges(validExchanges);
-          } else {
-            setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
-          }
-        } else {
-          setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
+        const parsed = JSON.parse(savedExchanges);
+        if (Array.isArray(parsed)) {
+            const validSavedExchanges = parsed.filter(ex => supportedExchanges.includes(ex));
+            if (validSavedExchanges.length >= 2) {
+                setSelectedExchanges(validSavedExchanges);
+            } else if (supportedExchanges.length >=2) {
+                setSelectedExchanges(supportedExchanges.slice(0, 2));
+            }
+        } else if (supportedExchanges.length >=2) {
+            setSelectedExchanges(supportedExchanges.slice(0, 2));
         }
-      } catch (e) {
-        setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
+      } catch { 
+        if (supportedExchanges.length >=2) {
+            setSelectedExchanges(supportedExchanges.slice(0, 2));
+        }
       }
-    } else if (supportedExchanges.length > 0 && selectedExchanges.length === 0) {
-      setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
+    } else if (supportedExchanges.length >= 2 && selectedExchanges.length === 0) {
+      setSelectedExchanges(supportedExchanges.slice(0, 2));
     }
   }, [supportedExchanges]);
-  
-  useEffect(() => {
-    const profitData = testTrades.slice(0, 20).map(trade => ({
-      time: new Date(trade.timestamp).toLocaleTimeString(),
-      profit: trade.profit,
-      profitPercentage: trade.profit_percentage,
-    })).reverse();
-    setProfitChartData(profitData);
-    
-    if (testTrades.length > 0) {
-      const winningTrades = testTrades.filter(trade => trade.profit > 0).length;
-      const winRate = (winningTrades / testTrades.length) * 100;
-      
-      setWinRateData([
-        { name: 'Win', value: winRate },
-        { name: 'Loss', value: 100 - winRate },
-      ]);
-    }
-  }, [testTrades]);
-  
-  const handleExchangeToggle = (exchange: string) => {
-    const newSelectedExchanges = selectedExchanges.includes(exchange)
-      ? selectedExchanges.filter((e: string) => e !== exchange)
-      : [...selectedExchanges, exchange];
-    
-    setSelectedExchanges(newSelectedExchanges);
-    localStorage.setItem(STORAGE_KEY_SELECTED_EXCHANGES, JSON.stringify(newSelectedExchanges));
+
+  const handleSliderChange = (value: number, setter: React.Dispatch<React.SetStateAction<number>>, key: string) => {
+    setter(value);
+    localStorage.setItem(key, value.toString());
   };
-  
-  const handleStartTest = async () => {
-    try {
-      setError(null);
-      
+
+  const handleExchangeToggle = (exchange: string) => {
+    if (isSimulationRunning) return;
+    const newSelection = selectedExchanges.includes(exchange)
+      ? selectedExchanges.filter((e) => e !== exchange)
+      : [...selectedExchanges, exchange];
+    setSelectedExchanges(newSelection);
+    localStorage.setItem(STORAGE_KEY_SELECTED_EXCHANGES, JSON.stringify(newSelection));
+  };
+
+  const handleStartStopSimulation = async () => {
+    setError(null);
+    if (isSimulationRunning) {
+      await onBotAction("stop");
+    } else {
       if (selectedExchanges.length < 2) {
-        setError('Please select at least 2 exchanges for testing');
+        setError("Please select at least 2 exchanges for testing.");
         return;
       }
-      
-      const capital_per_pair = {};
-      const tradingPairs = [
-        "BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "DOGE/USDT",
-        "XRP/USDT", "DOT/USDT", "LTC/USDT", "LINK/USDT", "MATIC/USDT"
-      ];
-      
-      tradingPairs.forEach(pair => {
-        capital_per_pair[pair] = assetCapital;
-      });
-      
-      const testSettings: TestModeSettings = {
-        enabled: true,
-        capital_per_pair: capital_per_pair,
-        buffer_percentage: bufferPercentage / 100, // Convert from percentage to decimal
+      const settings: TestModeSettings = {
+        usdt_cap: usdtCapitalPerExchange,
+        asset_cap: assetCapitalPerPairPerExchange,
+        buffer_percentage: bufferPercentage / 100, // Convert to decimal for backend
         exchanges: selectedExchanges,
-        usdt_cap: usdtCapital,
-        asset_cap: assetCapital,
       };
-      
-      onStartTest(testSettings);
-    } catch (error: any) {
-      setError(error.message || 'Failed to start test mode');
+      await onBotAction("start_test", settings);
     }
   };
+
+  const chartData = useMemo(() => {
+    return testTrades
+      .slice(0, 50) // Show last 50 trades for performance
+      .map((trade) => ({
+        time: new Date(trade.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        profit_quote: parseFloat(trade.profit_quote.toFixed(2)),
+        profit_percentage: parseFloat(trade.profit_percentage.toFixed(4)),
+      }))
+      .reverse(); // Show newest first if that's desired, or remove reverse for chronological
+  }, [testTrades]);
+
+  const summaryStats = useMemo(() => {
+    const totalTrades = testTrades.length;
+    const totalProfit = testTrades.reduce((sum, trade) => sum + trade.profit_quote, 0);
+    const avgProfitPercentage = totalTrades > 0
+        ? testTrades.reduce((sum, trade) => sum + trade.profit_percentage, 0) / totalTrades
+        : 0;
+    return { totalTrades, totalProfit, avgProfitPercentage };
+  }, [testTrades]);
   
-  
+  const recentAlerts = useMemo(() => {
+    // Filter alerts relevant to test mode or critical/error for general awareness
+    return alerts.filter(a => a.message.toLowerCase().includes("test") || a.severity === "critical" || a.severity === "error").slice(0,5);
+  }, [alerts]);
+
   return (
-    <div className="container mx-auto py-6">
-      <h2 className="text-2xl font-bold mb-6 md:text-left text-center">Test Mode</h2>
-      
+    <div className="space-y-6">
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Configuration Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Test Settings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              {/* Mobile collapsible slider section */}
-              <div className="md:hidden">
-                <Button
-                  variant="outline"
-                  className="w-full flex justify-between items-center mb-4 bg-black text-gray-400 border-gray-700"
-                  onClick={() => document.getElementById('mobile-sliders')?.classList.toggle('hidden')}
-                >
-                  <span className="font-medium">Sliders</span>
-                  <span className="text-sm">▼</span>
-                </Button>
-                
-                <div id="mobile-sliders" className="space-y-6 hidden">
-                  <div className="space-y-4">
-                    <Label>USDT Capital (per exchange): ${usdtCapital}</Label>
-                    <div className="flex items-center space-x-2">
-                      <Slider
-                        value={[usdtCapital]}
-                        min={50}
-                        max={7500}
-                        step={50}
-                        onValueChange={(value) => setUsdtCapital(value[0])}
-                        disabled={botStatus.test_mode}
-                        className="flex-grow"
-                      />
-                      <input
-                        type="number"
-                        min={50}
-                        max={7500}
-                        value={usdtCapital}
-                        onChange={(e) => setUsdtCapital(Number(e.target.value))}
-                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                        disabled={botStatus.test_mode}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <Label>Asset Capital (per pair): ${assetCapital}</Label>
-                    <div className="flex items-center space-x-2">
-                      <Slider
-                        value={[assetCapital]}
-                        min={10}
-                        max={750}
-                        step={10}
-                        onValueChange={(value) => setAssetCapital(value[0])}
-                        disabled={botStatus.test_mode}
-                        className="flex-grow"
-                      />
-                      <input
-                        type="number"
-                        min={10}
-                        max={750}
-                        value={assetCapital}
-                        onChange={(e) => setAssetCapital(Number(e.target.value))}
-                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                        disabled={botStatus.test_mode}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <Label>Buffer Percentage: {bufferPercentage.toFixed(4)}%</Label>
-                    <div className="flex items-center space-x-2">
-                      <Slider
-                        value={[bufferPercentage]}
-                        min={0}
-                        max={1}
-                        step={0.0001}
-                        onValueChange={(value) => setBufferPercentage(value[0])}
-                        disabled={botStatus.test_mode}
-                        className="flex-grow"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.0001}
-                        value={bufferPercentage}
-                        onChange={(e) => setBufferPercentage(Number(e.target.value))}
-                        className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                        disabled={botStatus.test_mode}
-                      />
-                    </div>
-                  </div>
+
+      {/* Test Simulation Status Card */}
+      <Card className="bg-gray-800/50 border-gray-700">
+        <CardContent className="pt-6">
+            <div className={`p-4 rounded-md flex items-center justify-between ${isSimulationRunning ? "bg-green-700/30 border-green-500" : testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE" ? "bg-gray-700/30 border-gray-500" : "bg-red-700/30 border-red-500"} border`}>
+                <div className="flex items-center">
+                    {isSimulationRunning ? <Zap className="h-5 w-5 text-green-400 mr-2 animate-pulse" /> : (testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE") ? <CheckCircle className="h-5 w-5 text-gray-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
+                    <span className={`text-lg font-medium ${isSimulationRunning ? "text-green-300" : (testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE") ? "text-gray-300" : "text-red-300"}`}>
+                        Test Simulation: {testSimulationStatus?.status ? testSimulationStatus.status.replace(/_/g, " ") : "IDLE"}
+                    </span>
                 </div>
-              </div>
-              
-              {/* Desktop slider section (non-collapsible) */}
-              <div className="hidden md:block space-y-6">
-                <div className="space-y-4">
-                  <Label>USDT Capital (per exchange): ${usdtCapital}</Label>
-                  <div className="flex items-center space-x-2">
-                    <Slider
-                      value={[usdtCapital]}
-                      min={50}
-                      max={7500}
-                      step={50}
-                      onValueChange={(value) => {
-                        setUsdtCapital(value[0]);
-                        localStorage.setItem(STORAGE_KEY_USDT_CAPITAL, value[0].toString());
-                      }}
-                      disabled={botStatus.test_mode}
-                      className="flex-grow"
-                    />
-                    <input
-                      type="number"
-                      min={50}
-                      max={7500}
-                      value={usdtCapital}
-                      onChange={(e) => {
-                        const value = Number(e.target.value);
-                        setUsdtCapital(value);
-                        localStorage.setItem(STORAGE_KEY_USDT_CAPITAL, value.toString());
-                      }}
-                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                      disabled={botStatus.test_mode}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
-                  <Label>Asset Capital (per pair): ${assetCapital}</Label>
-                  <div className="flex items-center space-x-2">
-                    <Slider
-                      value={[assetCapital]}
-                      min={10}
-                      max={750}
-                      step={10}
-                      onValueChange={(value) => {
-                        setAssetCapital(value[0]);
-                        localStorage.setItem(STORAGE_KEY_ASSET_CAPITAL, value[0].toString());
-                      }}
-                      disabled={botStatus.test_mode}
-                      className="flex-grow"
-                    />
-                    <input
-                      type="number"
-                      min={10}
-                      max={750}
-                      value={assetCapital}
-                      onChange={(e) => {
-                        const value = Number(e.target.value);
-                        setAssetCapital(value);
-                        localStorage.setItem(STORAGE_KEY_ASSET_CAPITAL, value.toString());
-                      }}
-                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                      disabled={botStatus.test_mode}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
-                  <Label>Buffer Percentage: {bufferPercentage.toFixed(4)}%</Label>
-                  <div className="flex items-center space-x-2">
-                    <Slider
-                      value={[bufferPercentage]}
-                      min={0}
-                      max={1}
-                      step={0.0001}
-                      onValueChange={(value) => {
-                        setBufferPercentage(value[0]);
-                        localStorage.setItem(STORAGE_KEY_BUFFER_PERCENTAGE, value[0].toString());
-                      }}
-                      disabled={botStatus.test_mode}
-                      className="flex-grow"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.0001}
-                      value={bufferPercentage}
-                      onChange={(e) => {
-                        const value = Number(e.target.value);
-                        setBufferPercentage(value);
-                        localStorage.setItem(STORAGE_KEY_BUFFER_PERCENTAGE, value.toString());
-                      }}
-                      className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
-                      disabled={botStatus.test_mode}
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                <Label>Select Exchanges (min 2)</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {supportedExchanges.map((exchange) => (
-                    <Button
-                      key={exchange}
-                      variant={selectedExchanges.includes(exchange) ? "default" : "outline"}
-                      onClick={() => handleExchangeToggle(exchange)}
-                      className={`justify-start ${!selectedExchanges.includes(exchange) ? "bg-[#2C2C2E] text-white" : ""}`}
-                      disabled={botStatus.test_mode}
-                    >
-                      {exchange.charAt(0).toUpperCase() + exchange.slice(1)}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              
-              <Button
-                onClick={botStatus.test_mode ? onStopTest : handleStartTest}
-                className={`w-full ${botStatus.test_mode ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700'}`}
-                disabled={selectedExchanges.length < 2}
-              >
-                {botStatus.test_mode ? (
-                  <>
-                    <Square className="mr-2 h-4 w-4" />
-                    Stop Simulation
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Start Simulation
-                  </>
+                {testSimulationStatus?.message && <p className="text-xs text-gray-400 ml-4 flex-shrink truncate" title={testSimulationStatus.message}>{testSimulationStatus.message}</p>}
+                {isSimulationRunning && testSimulationStatus?.active_since && (
+                    <p className="text-xs text-green-400 ml-auto whitespace-nowrap">Active since: {new Date(testSimulationStatus.active_since).toLocaleTimeString()}</p>
                 )}
-              </Button>
+            </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Settings Card */}
+        <Card className="lg:col-span-1 bg-gray-800/50 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center"><Settings size={20} className="mr-2 text-orange-400"/>Test Simulation Settings</CardTitle>
+            <CardDescription className="text-gray-400">
+              Configure parameters for the test simulation. The bot will use the 10 specified pairs: {TARGET_TRADING_PAIRS.map(p=>p.split("/")[0]).join(", ")}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <Label htmlFor="usdtCapital" className="text-gray-300 flex justify-between">
+                <span>USDT Capital (per Exchange)</span>
+                <span className="text-orange-400 font-medium">${usdtCapitalPerExchange.toLocaleString()}</span>
+              </Label>
+              <Slider
+                id="usdtCapital"
+                value={[usdtCapitalPerExchange]}
+                min={100} max={10000} step={100}
+                onValueChange={(val) => handleSliderChange(val[0], setUsdtCapitalPerExchange, STORAGE_KEY_USDT_CAPITAL)}
+                disabled={isSimulationRunning}
+                className="mt-2 [&>span:first-child]:h-1 [&>span:first-child>span]:bg-orange-500"
+              />
+            </div>
+            <div>
+              <Label htmlFor="assetCapital" className="text-gray-300 flex justify-between">
+                <span>Asset Capital (per Pair, per Exchange)</span>
+                <span className="text-orange-400 font-medium">{assetCapitalPerPairPerExchange.toLocaleString()} units</span>
+              </Label>
+              <Slider
+                id="assetCapital"
+                value={[assetCapitalPerPairPerExchange]}
+                min={1} max={100} step={1}
+                onValueChange={(val) => handleSliderChange(val[0], setAssetCapitalPerPairPerExchange, STORAGE_KEY_ASSET_CAPITAL)}
+                disabled={isSimulationRunning}
+                className="mt-2 [&>span:first-child]:h-1 [&>span:first-child>span]:bg-orange-500"
+              />
+               <p className="text-xs text-gray-500 mt-1">E.g., for BTC/USDT, this means {assetCapitalPerPairPerExchange} BTC per exchange.</p>
+            </div>
+            <div>
+              <Label htmlFor="bufferPercentage" className="text-gray-300 flex justify-between">
+                <span>Buffer Percentage</span>
+                <span className="text-orange-400 font-medium">{bufferPercentage.toFixed(4)}%</span>
+              </Label>
+              <Slider
+                id="bufferPercentage"
+                value={[bufferPercentage]}
+                min={0.0000} max={1.0000} step={0.0001} // More granular step for 0.01%
+                onValueChange={(val) => handleSliderChange(val[0], setBufferPercentage, STORAGE_KEY_BUFFER_PERCENTAGE)}
+                disabled={isSimulationRunning}
+                className="mt-2 [&>span:first-child]:h-1 [&>span:first-child>span]:bg-orange-500"
+              />
+            </div>
+            <div>
+              <Label className="text-gray-300 mb-2 block">Select Exchanges (Min. 2)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {supportedExchanges.map((exchange) => (
+                  <Button
+                    key={exchange}
+                    variant={selectedExchanges.includes(exchange) ? "default" : "outline"}
+                    onClick={() => handleExchangeToggle(exchange)}
+                    disabled={isSimulationRunning}
+                    className={`w-full text-sm ${selectedExchanges.includes(exchange) ? "bg-orange-500 hover:bg-orange-600 text-white" : "border-gray-600 bg-gray-700 hover:bg-gray-600 text-gray-300"}`}
+                  >
+                    {exchange.charAt(0).toUpperCase() + exchange.slice(1)}
+                  </Button>
+                ))}
+              </div>
             </div>
           </CardContent>
+          <CardFooter>
+            <Button
+              onClick={handleStartStopSimulation}
+              disabled={selectedExchanges.length < 2 && !isSimulationRunning}
+              className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${isSimulationRunning ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
+            >
+              {isSimulationRunning ? <StopCircle size={20}/> : <Play size={20}/>}
+              <span>{isSimulationRunning ? "Stop Simulation" : "Start Simulation"}</span>
+            </Button>
+          </CardFooter>
         </Card>
-        
-        <Card>
+
+        {/* Results Card */}
+        <Card className="lg:col-span-2 bg-gray-800/50 border-gray-700">
           <CardHeader>
-            <CardTitle>Test Results</CardTitle>
+            <CardTitle className="text-white flex items-center"><BarChartHorizontalBig size={20} className="mr-2 text-orange-400"/>Simulation Results</CardTitle>
+            <CardDescription className="text-gray-400">
+              Performance metrics and trade history from the current or last test simulation.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium">Total Test Trades</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{testTrades.length}</div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      ${testTrades.reduce((sum, trade) => sum + trade.profit, 0).toFixed(2)}
-                    </div>
-                  </CardContent>
-                </Card>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div className="p-4 bg-gray-700/50 rounded-lg text-center">
+                <p className="text-xs text-gray-400 uppercase">Total Test Trades</p>
+                <p className="text-2xl font-bold text-white">{testSimulationStatus?.total_test_trades ?? summaryStats.totalTrades}</p>
               </div>
-              
-              <div className="h-60">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={profitChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="profit" stroke="#ff4500" activeDot={{ r: 8 }} />
-                  </LineChart>
-                </ResponsiveContainer>
+              <div className="p-4 bg-gray-700/50 rounded-lg text-center">
+                <p className="text-xs text-gray-400 uppercase">Total Test Profit (USDT)</p>
+                <p className={`text-2xl font-bold ${(testSimulationStatus?.total_test_profit ?? summaryStats.totalProfit) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  ${(testSimulationStatus?.total_test_profit ?? summaryStats.totalProfit).toFixed(2)}
+                </p>
               </div>
-              
-              <div className="h-60">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={winRateData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="value" fill="#ff8c00" />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="p-4 bg-gray-700/50 rounded-lg text-center">
+                <p className="text-xs text-gray-400 uppercase">Avg. Profit %</p>
+                <p className={`text-2xl font-bold ${summaryStats.avgProfitPercentage >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {summaryStats.avgProfitPercentage.toFixed(4)}%
+                </p>
               </div>
+            </div>
+
+            {/* Profit Chart */}
+            <div className="h-[250px] mb-6">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                  <XAxis dataKey="time" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="left" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
+                  <YAxis yAxisId="right" orientation="right" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}%`} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
+                  <Line yAxisId="left" type="monotone" dataKey="profit_quote" name="Profit (USDT)" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: "#34d399" }} activeDot={{ r: 5 }} />
+                  <Line yAxisId="right" type="monotone" dataKey="profit_percentage" name="Profit (%)" stroke="#fb923c" strokeWidth={2} dot={{ r: 3, fill: "#fb923c" }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Recent Test Trades Table */}
+            <div>
+              <h3 className="text-md font-semibold text-white mb-2">Recent Test Trades</h3>
+              <ScrollArea className="h-[200px] border border-gray-700 rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-gray-700">
+                      <TableHead className="text-gray-400">Time</TableHead>
+                      <TableHead className="text-gray-400">Pair</TableHead>
+                      <TableHead className="text-gray-400">Buy</TableHead>
+                      <TableHead className="text-gray-400">Sell</TableHead>
+                      <TableHead className="text-right text-gray-400">Profit ($)</TableHead>
+                      <TableHead className="text-right text-gray-400">Profit (%)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {testTrades.length > 0 ? (
+                      testTrades.slice(0, 20).map((trade) => (
+                        <TableRow key={trade.id} className="border-gray-700 hover:bg-gray-700/30">
+                          <TableCell className="text-xs text-gray-300">{formatDistanceToNow(new Date(trade.timestamp), { addSuffix: true })}</TableCell>
+                          <TableCell className="font-medium text-white">{trade.symbol}</TableCell>
+                          <TableCell className="text-xs text-gray-300">{trade.buy_trade.exchange} @ {trade.buy_trade.price.toFixed(trade.symbol.endsWith("USDT") ? 2 : 8)}</TableCell>
+                          <TableCell className="text-xs text-gray-300">{trade.sell_trade.exchange} @ {trade.sell_trade.price.toFixed(trade.symbol.endsWith("USDT") ? 2 : 8)}</TableCell>
+                          <TableCell className={`text-right font-medium ${trade.profit_quote >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {trade.profit_quote.toFixed(2)}
+                          </TableCell>
+                          <TableCell className={`text-right font-medium ${trade.profit_percentage >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {trade.profit_percentage.toFixed(4)}%
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-gray-500 py-8">
+                          No test trades recorded yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
             </div>
           </CardContent>
         </Card>
       </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Simulated Trade Logs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* Desktop view - horizontal table */}
-          <div className="overflow-x-auto hidden md:block">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-[#4A4A4F]">
-                  <th className="text-left py-2 text-white">Time</th>
-                  <th className="text-left py-2 text-white">Pair</th>
-                  <th className="text-left py-2 text-white">Buy Exchange</th>
-                  <th className="text-left py-2 text-white">Sell Exchange</th>
-                  <th className="text-right py-2 text-white">Spread %</th>
-                  <th className="text-right py-2 text-white">Amount</th>
-                  <th className="text-right py-2 text-white">Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {testTrades.slice(0, 10).map((trade) => (
-                  <tr key={trade.id} className="border-b border-[#4A4A4F]">
-                    <td className="py-2 text-white">{new Date(trade.timestamp).toLocaleTimeString()}</td>
-                    <td className="py-2 text-white">{trade.buy_trade.symbol}</td>
-                    <td className="py-2 text-white">{trade.buy_trade.exchange}</td>
-                    <td className="py-2 text-white">{trade.sell_trade.exchange}</td>
-                    <td className={`text-right py-2 ${trade.profit_percentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {trade.profit_percentage.toFixed(2)}%
-                    </td>
-                    <td className="text-right py-2 text-white">{trade.buy_trade.amount.toFixed(6)}</td>
-                    <td className={`text-right py-2 ${trade.profit > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      ${trade.profit.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-                {testTrades.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-4 text-center text-white">
-                      No test trades executed yet
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Mobile view - vertical cards */}
-          <div className="md:hidden space-y-4">
-            {testTrades.slice(0, 10).map((trade) => (
-              <div key={trade.id} className="p-3 border border-[#4A4A4F] rounded-md">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div className="text-gray-400">Time:</div>
-                  <div className="text-white">{new Date(trade.timestamp).toLocaleTimeString()}</div>
-                  <div className="text-gray-400">Pair:</div>
-                  <div className="text-white">{trade.buy_trade.symbol}</div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div className="text-gray-400">Buy Exchange:</div>
-                  <div className="text-white">{trade.buy_trade.exchange}</div>
-                  <div className="text-gray-400">Sell Exchange:</div>
-                  <div className="text-white">{trade.sell_trade.exchange}</div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="text-gray-400">Spread %:</div>
-                  <div className={`text-right ${trade.profit_percentage > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {trade.profit_percentage.toFixed(2)}%
-                  </div>
-                  <div className="text-gray-400">Amount:</div>
-                  <div className="text-right text-white">{trade.buy_trade.amount.toFixed(6)}</div>
-                  <div className="text-gray-400">Profit:</div>
-                  <div className={`text-right ${trade.profit > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    ${trade.profit.toFixed(2)}
-                  </div>
-                </div>
-              </div>
+
+      {/* Alerts Section */}
+      {recentAlerts.length > 0 && (
+        <Card className="bg-gray-800/50 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center"><Info size={20} className="mr-2 text-blue-400"/>Recent Alerts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {recentAlerts.map((alert, index) => (
+              <Alert key={index} variant={alert.severity === "critical" || alert.severity === "error" ? "destructive" : alert.severity === "warning" ? "default" : "default"} 
+                     className={`${alert.severity === "warning" ? "bg-yellow-600/20 border-yellow-500" : alert.severity === "info" ? "bg-blue-600/20 border-blue-500" : ""}`}>
+                {alert.severity === "critical" || alert.severity === "error" ? <AlertCircle className="h-4 w-4" /> : <Info className="h-4 w-4" />}
+                <AlertTitle className={alert.severity === "critical" || alert.severity === "error" ? "text-red-300" : alert.severity === "warning" ? "text-yellow-300" : "text-blue-300"}>
+                  {alert.type.replace(/_/g, " ").toUpperCase()} ({alert.entity_name})
+                </AlertTitle>
+                <AlertDescription className="text-gray-400 text-xs">{alert.message}</AlertDescription>
+              </Alert>
             ))}
-            {testTrades.length === 0 && (
-              <div className="py-4 text-center text-white">
-                No test trades executed yet
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
+
