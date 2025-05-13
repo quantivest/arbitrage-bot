@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Union, Literal
+from typing import Dict, List, Optional, Union, Literal, Any, Enum
 from datetime import datetime
+from enum import Enum as PyEnum
 
 # --- Exchange & Balance Models ---
 class ExchangeCredentials(BaseModel):
@@ -171,3 +172,76 @@ class ActionResponse(BaseModel):
 class ReactivateRequest(BaseModel):
     type: Literal["pair", "exchange", "global"]
     entity_name: Optional[str] = None # Required if type is pair or exchange
+
+class OrderStatus(str, PyEnum):
+    """Order status enum."""
+    open = "open"
+    closed = "closed"
+    canceled = "canceled"
+    expired = "expired"
+    rejected = "rejected"
+    partially_filled = "partially_filled"
+
+class OrderType(str, PyEnum):
+    """Order type enum."""
+    market = "market"
+    limit = "limit"
+
+class OrderSide(str, PyEnum):
+    """Order side enum."""
+    buy = "buy"
+    sell = "sell"
+
+# --- Alert & Status Models ---
+class AlertType(str, PyEnum):
+    """Alert type enum."""
+    connection_error = "connection_error"
+    api_error = "api_error"
+    trade_execution_error = "trade_execution_error"
+    partial_fill_warning = "partial_fill_warning"
+    failsafe_triggered = "failsafe_triggered"
+    balance_low = "balance_low"
+    config_error = "config_error"
+    info = "info"
+    websocket_status = "websocket_status"
+
+class FailsafeStatus(BaseModel):
+    """Comprehensive status of all failsafe mechanisms."""
+    global_trading_halt: bool = Field(default=False, description="Whether global trading is halted")
+    global_halt_reason: Optional[str] = Field(default=None, description="Reason for global halt")
+    global_halt_timestamp: Optional[datetime] = Field(default=None, description="Timestamp of global halt")
+    disabled_exchanges: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict, description="Status of disabled exchanges")
+    disabled_pairs: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict, description="Status of disabled trading pairs")
+
+class ExchangeBalanceUpdate(BaseModel):
+    """Model for exchange balance updates sent via WebSocket."""
+    type: Literal["exchange_balance_update"] = "exchange_balance_update"
+    exchange_balances: List[ExchangeBalance] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class BotStatusUpdate(BaseModel):
+    """Model for bot status updates sent via WebSocket."""
+    type: Literal["bot_status_update"] = "bot_status_update"
+    is_bot_running: bool
+    current_mode: Literal["idle", "live", "test_simulating"]
+    connected_exchanges: List[str] = Field(default_factory=list)
+    websocket_connected: bool = False
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class FailsafeStatusUpdate(BaseModel):
+    """Model for failsafe status updates sent via WebSocket."""
+    type: Literal["failsafe_status_update"] = "failsafe_status_update"
+    global_trading_halt: bool
+    global_halt_reason: Optional[str] = None
+    global_halt_timestamp: Optional[datetime] = None
+    disabled_exchanges: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    disabled_pairs: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class ExchangeConnectionStatus(BaseModel):
+    """Model for exchange connection status updates sent via WebSocket."""
+    type: Literal["exchange_connection_status"] = "exchange_connection_status"
+    exchange: str
+    connected: bool
+    error: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
