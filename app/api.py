@@ -17,7 +17,7 @@ from .config import settings
 
 # Configure logging
 logger = logging.getLogger("api") # MODIFICATION: Use a named logger
-logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(name)s - %(levelname)s - %(message)s
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 router = APIRouter()
 
@@ -46,10 +46,10 @@ class ConnectionManager:
             self.disconnect(websocket)
 
     async def broadcast(self, message: dict):
-        # logger.debug(f"Broadcasting message to {len(self.active_connections)} clients: {message.get(\'type
+        # logger.debug(f"Broadcasting message to {len(self.active_connections)} clients: {message.get('type')}")
         # MODIFICATION: More selective logging for broadcast to avoid excessive noise
         if message.get("type") != "bot_status_update": # Log other types of broadcasts
-             logger.info(f"Broadcasting message of type {message.get(\'type
+             logger.info(f"Broadcasting message of type {message.get('type')}")
         living_connections = self.active_connections[:]
         for connection in living_connections:
             try:
@@ -181,7 +181,7 @@ async def connect_exchange_api(credentials: ExchangeCredentials):
         logger.info(f"Successfully fetched initial balances for {credentials.exchange}.")
     except Exception as e:
         logger.warning(f"Connected to {credentials.exchange}, but failed initial balance fetch: {str(e)}")
-        # Don\'t fail the connection yet, but log it. Frontend should show error for this exchange balance.
+        # Don't fail the connection yet, but log it. Frontend should show error for this exchange balance.
 
     return ActionResponse(success=True, message=f"Successfully connected to {credentials.exchange}. Balances are being updated.")
 
@@ -293,4 +293,3 @@ async def trigger_manual_status_broadcast(event_type: str, event_data: Optional[
         "current_status": full_status_payload
     }
     await connection_manager.broadcast(message_to_broadcast)
-
