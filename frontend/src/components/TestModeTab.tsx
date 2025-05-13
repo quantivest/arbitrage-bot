@@ -8,6 +8,11 @@ import { ArbitrageTrade, BotStatus, TestModeSettings } from '../types';
 import { AlertCircle, Play, Square } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
+const STORAGE_KEY_ASSET_CAPITAL = 'arbitrage-bot-asset-capital';
+const STORAGE_KEY_BUFFER_PERCENTAGE = 'arbitrage-bot-buffer-percentage';
+const STORAGE_KEY_USDT_CAPITAL = 'arbitrage-bot-usdt-capital';
+const STORAGE_KEY_SELECTED_EXCHANGES = 'arbitrage-bot-selected-exchanges';
+
 interface TestModeTabProps {
   botStatus: BotStatus;
   supportedExchanges: string[];
@@ -32,7 +37,43 @@ export default function TestModeTab({
   const [winRateData, setWinRateData] = useState<any[]>([]);
   
   useEffect(() => {
-    if (supportedExchanges.length > 0 && selectedExchanges.length === 0) {
+    const savedAssetCapital = localStorage.getItem(STORAGE_KEY_ASSET_CAPITAL);
+    const savedBufferPercentage = localStorage.getItem(STORAGE_KEY_BUFFER_PERCENTAGE);
+    const savedUsdtCapital = localStorage.getItem(STORAGE_KEY_USDT_CAPITAL);
+    const savedSelectedExchanges = localStorage.getItem(STORAGE_KEY_SELECTED_EXCHANGES);
+    
+    if (savedAssetCapital) {
+      setAssetCapital(Number(savedAssetCapital));
+    }
+    
+    if (savedBufferPercentage) {
+      setBufferPercentage(Number(savedBufferPercentage));
+    }
+    
+    if (savedUsdtCapital) {
+      setUsdtCapital(Number(savedUsdtCapital));
+    }
+    
+    if (savedSelectedExchanges) {
+      try {
+        const parsedExchanges = JSON.parse(savedSelectedExchanges);
+        if (Array.isArray(parsedExchanges) && parsedExchanges.length > 0) {
+          const validExchanges = parsedExchanges.filter(exchange => 
+            supportedExchanges.includes(exchange)
+          );
+          
+          if (validExchanges.length >= 2) {
+            setSelectedExchanges(validExchanges);
+          } else {
+            setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
+          }
+        } else {
+          setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
+        }
+      } catch (e) {
+        setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
+      }
+    } else if (supportedExchanges.length > 0 && selectedExchanges.length === 0) {
       setSelectedExchanges(supportedExchanges.slice(0, Math.min(2, supportedExchanges.length)));
     }
   }, [supportedExchanges]);
@@ -57,11 +98,12 @@ export default function TestModeTab({
   }, [testTrades]);
   
   const handleExchangeToggle = (exchange: string) => {
-    if (selectedExchanges.includes(exchange)) {
-      setSelectedExchanges(selectedExchanges.filter((e: string) => e !== exchange));
-    } else {
-      setSelectedExchanges([...selectedExchanges, exchange]);
-    }
+    const newSelectedExchanges = selectedExchanges.includes(exchange)
+      ? selectedExchanges.filter((e: string) => e !== exchange)
+      : [...selectedExchanges, exchange];
+    
+    setSelectedExchanges(newSelectedExchanges);
+    localStorage.setItem(STORAGE_KEY_SELECTED_EXCHANGES, JSON.stringify(newSelectedExchanges));
   };
   
   const handleStartTest = async () => {
@@ -214,7 +256,10 @@ export default function TestModeTab({
                       min={50}
                       max={7500}
                       step={50}
-                      onValueChange={(value) => setUsdtCapital(value[0])}
+                      onValueChange={(value) => {
+                        setUsdtCapital(value[0]);
+                        localStorage.setItem(STORAGE_KEY_USDT_CAPITAL, value[0].toString());
+                      }}
                       disabled={botStatus.test_mode}
                       className="flex-grow"
                     />
@@ -223,7 +268,11 @@ export default function TestModeTab({
                       min={50}
                       max={7500}
                       value={usdtCapital}
-                      onChange={(e) => setUsdtCapital(Number(e.target.value))}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setUsdtCapital(value);
+                        localStorage.setItem(STORAGE_KEY_USDT_CAPITAL, value.toString());
+                      }}
                       className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
                       disabled={botStatus.test_mode}
                     />
@@ -238,7 +287,10 @@ export default function TestModeTab({
                       min={10}
                       max={750}
                       step={10}
-                      onValueChange={(value) => setAssetCapital(value[0])}
+                      onValueChange={(value) => {
+                        setAssetCapital(value[0]);
+                        localStorage.setItem(STORAGE_KEY_ASSET_CAPITAL, value[0].toString());
+                      }}
                       disabled={botStatus.test_mode}
                       className="flex-grow"
                     />
@@ -247,7 +299,11 @@ export default function TestModeTab({
                       min={10}
                       max={750}
                       value={assetCapital}
-                      onChange={(e) => setAssetCapital(Number(e.target.value))}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setAssetCapital(value);
+                        localStorage.setItem(STORAGE_KEY_ASSET_CAPITAL, value.toString());
+                      }}
                       className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
                       disabled={botStatus.test_mode}
                     />
@@ -262,7 +318,10 @@ export default function TestModeTab({
                       min={0}
                       max={1}
                       step={0.0001}
-                      onValueChange={(value) => setBufferPercentage(value[0])}
+                      onValueChange={(value) => {
+                        setBufferPercentage(value[0]);
+                        localStorage.setItem(STORAGE_KEY_BUFFER_PERCENTAGE, value[0].toString());
+                      }}
                       disabled={botStatus.test_mode}
                       className="flex-grow"
                     />
@@ -272,7 +331,11 @@ export default function TestModeTab({
                       max={1}
                       step={0.0001}
                       value={bufferPercentage}
-                      onChange={(e) => setBufferPercentage(Number(e.target.value))}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setBufferPercentage(value);
+                        localStorage.setItem(STORAGE_KEY_BUFFER_PERCENTAGE, value.toString());
+                      }}
                       className="w-20 bg-[#2C2C2E] border border-gray-700 rounded px-2 py-1 text-white"
                       disabled={botStatus.test_mode}
                     />
