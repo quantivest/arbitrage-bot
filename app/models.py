@@ -53,6 +53,19 @@ class ArbitrageOpportunity(BaseModel):
     source: Literal["live", "test"] = Field(default="live", description="Indicates if opportunity is from live or test data")
 
 # --- Trade Models ---
+class Trade(BaseModel):
+    """Model for executed trade."""
+    id: str = Field(..., description="Exchange-provided order ID or internal ID")
+    exchange: str = Field(..., description="Name of the exchange")
+    symbol: str = Field(..., description="Trading pair symbol")
+    side: str = Field(..., description="Trade side (buy or sell)")
+    amount: float = Field(..., description="Amount of base currency traded")
+    price: float = Field(..., description="Average execution price")
+    cost: float = Field(..., description="Total cost of the trade in quote currency (amount * price)")
+    fee: float = Field(..., description="Fee paid for the trade")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of trade execution or recording")
+    is_test: bool = Field(default=False, description="Flag indicating if this was a simulated test trade")
+
 class IndividualTrade(BaseModel):
     """Details of a single buy or sell trade executed as part of an arbitrage."""
     id: str = Field(..., description="Exchange-provided order ID or internal ID")
@@ -158,4 +171,3 @@ class ActionResponse(BaseModel):
 class ReactivateRequest(BaseModel):
     type: Literal["pair", "exchange", "global"]
     entity_name: Optional[str] = None # Required if type is pair or exchange
-
