@@ -16,16 +16,16 @@ export default defineConfig({
         background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/',
-        start_url: '/',
+        scope: '/arbitrage-bot-frontend/',
+        start_url: '/arbitrage-bot-frontend/',
         icons: [
           {
-            src: '/icons/arbitrage-bot-icon-192.png',
+            src: '/arbitrage-bot-frontend/icons/arbitrage-bot-icon-192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/icons/arbitrage-bot-icon-512.png',
+            src: '/arbitrage-bot-frontend/icons/arbitrage-bot-icon-512.png',
             sizes: '512x512',
             type: 'image/png'
           }
@@ -33,7 +33,7 @@ export default defineConfig({
       }
     })
   ],
-  base: '/',
+  base: '/arbitrage-bot-frontend/',
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
