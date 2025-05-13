@@ -63,7 +63,24 @@ class ExchangeManager:
                     'enableRateLimit': True,  # Enable rate limiting
                     'rateLimit': 500  # 500ms between requests (2 requests per second)
                 }
-                exchange_params['nonce'] = lambda: str(int(time.time() * 1000))
+                if not hasattr(self, 'gemini_nonces'):
+                    self.gemini_nonces = {}
+                
+                api_key_for_nonce = api_key.strip() if api_key else ""
+                nonce_key = f"gemini_{api_key_for_nonce[-8:]}" if len(api_key_for_nonce) >= 8 else f"gemini_{api_key_for_nonce}"
+                
+                def get_gemini_nonce():
+                    if nonce_key not in self.gemini_nonces:
+                        self.gemini_nonces[nonce_key] = int(time.time() * 1000)
+                        print(f"Initialized Gemini nonce for key {nonce_key}: {self.gemini_nonces[nonce_key]}")
+                    else:
+                        self.gemini_nonces[nonce_key] += 1
+                    
+                    nonce_value = str(self.gemini_nonces[nonce_key])
+                    print(f"Generated Gemini nonce: {nonce_value}")
+                    return nonce_value
+                
+                exchange_params['nonce'] = get_gemini_nonce
             
             if additional_params:
                 exchange_params.update(additional_params)
