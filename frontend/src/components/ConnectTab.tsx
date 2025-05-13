@@ -6,7 +6,7 @@ import { Label } from "./ui/label";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert"; // MODIFICATION: Added AlertTitle
 import { exchangeApi, botApi } from "../api";
 import { BotStatus, ExchangeBalance, AlertMessage, FailsafeStatusData } from "../types"; // MODIFICATION: Added AlertMessage, FailsafeStatusData
-import { AlertCircle, CheckCircle, RefreshCw, Play, StopCircle, PowerOff, Power } from "lucide-react"; // MODIFICATION: Added PowerOff, Power
+import { AlertCircle, CheckCircle, RefreshCw, Play, Square } from "lucide-react";
 
 interface ConnectTabProps {
   botStatus: BotStatus;
@@ -193,7 +193,7 @@ export default function ConnectTab({
                 type="text"
                 value={additionalParams}
                 onChange={(e) => setAdditionalParams(e.target.value)}
-                placeholder=\'{"param1": "value1"}\'
+                placeholder='{"param1": "value1"}'
                 className="bg-gray-700 border-gray-600 text-white placeholder-gray-500 focus:ring-orange-500 focus:border-orange-500 mt-1"
               />
             </div>
@@ -238,7 +238,7 @@ export default function ConnectTab({
                 className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${botStatus.is_running ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
                 disabled={(!botStatus.active_exchanges || botStatus.active_exchanges.length < 2) && !botStatus.is_running}
               >
-                {botStatus.is_running ? <StopCircle size={20}/> : <Play size={20}/>}
+                {botStatus.is_running ? <Square size={20}/> : <Play size={20}/>}
                 <span>{botStatus.is_running ? "Stop Live Bot" : "Start Live Bot"}</span>
               </Button>
             </CardFooter>
@@ -286,4 +286,3 @@ export default function ConnectTab({
     </div>
   );
 }
-
