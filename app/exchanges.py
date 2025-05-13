@@ -165,3 +165,5 @@ class ExchangeManager:
         except Exception as e:
             print(f"Error testing Gemini connection: {str(e)}")
             return False
+
+exchange_manager = ExchangeManager()
