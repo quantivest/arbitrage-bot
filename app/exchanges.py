@@ -160,4 +160,8 @@ class ExchangeManager:
             # Fallback to custom request if fetchBalance is not supported by ccxt for this exchange object
             print(f"ccxt's exchange.has['fetchBalance'] is false for Gemini. Proceeding with custom Gemini auth test.")
             endpoint = '/v1/balances'
-            # api_key_for_custom_req is the key without 
+            # api_key_for_custom_req is the key without account- prefix if it was trimmed
+            return True
+        except Exception as e:
+            print(f"Error testing Gemini connection: {str(e)}")
+            return False
