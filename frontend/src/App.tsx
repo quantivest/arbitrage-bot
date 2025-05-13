@@ -7,8 +7,11 @@ import { ArbitrageTrade, BotStatus, ExchangeBalance, TestModeSettings } from './
 import "./index.css";
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
+import { useToast } from './hooks/use-toast';
+import { Toaster } from './components/ui/toaster';
 
 function App() {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('connect');
   const [botStatus, setBotStatus] = useState<BotStatus>({
     running: false,
@@ -51,7 +54,13 @@ function App() {
           }
         }
       } catch (error: any) {
-        setError(error.message || 'Failed to fetch initial data');
+        const errorMessage = error.message || 'Failed to fetch initial data';
+        setError(errorMessage);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: errorMessage,
+        });
       }
     };
     
@@ -128,8 +137,13 @@ function App() {
           console.log('Polling status update:', statusResponse);
           setBotStatus(statusResponse);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to poll status:', error);
+        toast({
+          variant: "destructive",
+          title: "Connection Error",
+          description: `Failed to poll status: ${error.message || 'Unknown error'}`,
+        });
       }
     }, 5000); // Poll every 5 seconds when WebSocket is down
     
@@ -147,8 +161,13 @@ function App() {
         try {
           const response = await exchangeApi.getBalances(true);
           setBalances(response.balances);
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to fetch balances:', error);
+          toast({
+            variant: "destructive",
+            title: "Balance Error",
+            description: `Failed to fetch balances: ${error.message || 'Unknown error'}`,
+          });
         }
       };
       
@@ -164,13 +183,33 @@ function App() {
       const statusResponse = await botApi.getStatus();
       console.log('Manual status refresh:', statusResponse);
       
+      const currentStatus = botStatus;
+      
       setBotStatus((prev: BotStatus) => ({ 
         ...statusResponse, 
         running: running !== undefined ? running : prev.running 
       }));
-    } catch (error) {
+      
+      if (running && !currentStatus.running) {
+        toast({
+          title: "Bot Started",
+          description: `Bot started in ${statusResponse.test_mode ? 'test' : 'live'} mode`,
+        });
+      } else if (!running && currentStatus.running) {
+        toast({
+          title: "Bot Stopped",
+          description: "Bot stopped",
+        });
+      }
+    } catch (error: any) {
       console.error('Failed to refresh bot status:', error);
       setBotStatus((prev: BotStatus) => ({ ...prev, running }));
+      
+      toast({
+        variant: "destructive",
+        title: "Status Error",
+        description: `Failed to refresh bot status: ${error.message || 'Unknown error'}`,
+      });
     }
   };
   
@@ -179,7 +218,13 @@ function App() {
       await botApi.startBot(true, settings);
       setBotStatus((prev: BotStatus) => ({ ...prev, running: true, test_mode: true }));
     } catch (error: any) {
-      setError(error.message || 'Failed to start test mode');
+      const errorMessage = error.message || 'Failed to start test mode';
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Test Mode Error",
+        description: errorMessage,
+      });
     }
   };
   
@@ -188,7 +233,13 @@ function App() {
       await botApi.stopBot();
       setBotStatus((prev: BotStatus) => ({ ...prev, running: false, test_mode: false }));
     } catch (error: any) {
-      setError(error.message || 'Failed to stop test mode');
+      const errorMessage = error.message || 'Failed to stop test mode';
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Test Mode Error",
+        description: errorMessage,
+      });
     }
   };
   
@@ -196,7 +247,13 @@ function App() {
     try {
       await botApi.reactivatePair(pair);
     } catch (error: any) {
-      setError(error.message || `Failed to reactivate pair ${pair}`);
+      const errorMessage = error.message || `Failed to reactivate pair ${pair}`;
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Reactivation Error",
+        description: errorMessage,
+      });
     }
   };
   
@@ -204,7 +261,13 @@ function App() {
     try {
       await botApi.reactivateExchange(exchange);
     } catch (error: any) {
-      setError(error.message || `Failed to reactivate exchange ${exchange}`);
+      const errorMessage = error.message || `Failed to reactivate exchange ${exchange}`;
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Reactivation Error",
+        description: errorMessage,
+      });
     }
   };
   
@@ -212,7 +275,13 @@ function App() {
     try {
       await botApi.reactivateGlobal();
     } catch (error: any) {
-      setError(error.message || 'Failed to reactivate global trading');
+      const errorMessage = error.message || 'Failed to reactivate global trading';
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Reactivation Error",
+        description: errorMessage,
+      });
     }
   };
 
@@ -246,12 +315,7 @@ function App() {
       </header>
       
       <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+        <Toaster />
         
         <div className="w-full">
           <div className="border-b border-gray-700 mb-6 md:block hidden">
