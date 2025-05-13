@@ -324,7 +324,7 @@ function App() {
                 className={activeTab === 'connect' ? "py-2 px-4 border-b-2 border-orange-500 text-white" : "py-2 px-4 text-gray-400"}
                 onClick={() => setActiveTab('connect')}
               >
-                Start
+                Live
               </button>
               <button 
                 className={activeTab === 'dashboard' ? "py-2 px-4 border-b-2 border-orange-500 text-white" : "py-2 px-4 text-gray-400"}
@@ -336,7 +336,7 @@ function App() {
                 className={activeTab === 'test' ? "py-2 px-4 border-b-2 border-orange-500 text-white" : "py-2 px-4 text-gray-400"}
                 onClick={() => setActiveTab('test')}
               >
-                Simulate
+                Test
               </button>
             </div>
           </div>
@@ -381,7 +381,7 @@ function App() {
             className={`py-6 px-6 flex flex-col items-center justify-center flex-1 ${activeTab === 'connect' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('connect')}
           >
-            <span className="text-base font-medium">Start</span>
+            <span className="text-base font-medium">Live</span>
           </button>
           <button 
             className={`py-6 px-6 flex flex-col items-center justify-center flex-1 ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
@@ -393,7 +393,7 @@ function App() {
             className={`py-6 px-6 flex flex-col items-center justify-center flex-1 ${activeTab === 'test' ? 'text-orange-500' : 'text-gray-400'}`}
             onClick={() => setActiveTab('test')}
           >
-            <span className="text-base font-medium">Simulate</span>
+            <span className="text-base font-medium">Test</span>
           </button>
         </div>
       </div>

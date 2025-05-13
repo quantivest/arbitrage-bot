@@ -57,7 +57,9 @@ class ArbitrageBot:
     
     def stop(self):
         """Stop the arbitrage bot."""
+        print(f"Stopping arbitrage bot, current running={self.running}, test_mode={self.test_mode}")
         self.running = False
+        print("Arbitrage bot stopped, running flag set to False")
     
     def _initialize_test_balances(self, test_settings: Dict):
         """Initialize test balances for all exchanges."""
@@ -92,18 +94,31 @@ class ArbitrageBot:
     
     async def _main_loop(self):
         """Main arbitrage detection and execution loop."""
+        print(f"Starting main loop with running={self.running}, test_mode={self.test_mode}")
+        loop_iterations = 0
+        
         while self.running:
             try:
+                loop_iterations += 1
+                if loop_iterations % 10 == 0:  # Log every 10 iterations
+                    print(f"Main loop iteration {loop_iterations}, running={self.running}, test_mode={self.test_mode}")
+                
                 exchanges = list(exchange_manager.exchanges.keys())
                 
                 if len(exchanges) >= 2:
                     for pair in settings.TRADING_PAIRS:
                         await self._scan_arbitrage_opportunities(pair, exchanges)
+                else:
+                    print(f"Not enough exchanges connected: {len(exchanges)}")
                 
                 await asyncio.sleep(1)
             except Exception as e:
                 print(f"Error in arbitrage main loop: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(5)  # Sleep longer on error
+                
+        print(f"Main loop exited with running={self.running}, test_mode={self.test_mode}")
     
     async def _scan_arbitrage_opportunities(self, pair: str, exchanges: List[str]):
         """Scan for arbitrage opportunities for a specific pair across exchanges."""
