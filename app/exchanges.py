@@ -351,3 +351,6 @@ class ExchangeManager:
     def get_all_connected_exchanges(self) -> List[str]:
         return list(self.exchanges.keys())
 
+# Instantiate the ExchangeManager for use by other modules
+exchange_manager = ExchangeManager()
+
