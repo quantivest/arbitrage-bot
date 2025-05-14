@@ -192,7 +192,7 @@ export default function ConnectTab({
                 type="text"
                 value={additionalParams}
                 onChange={(e) => setAdditionalParams(e.target.value)}
-                placeholder=\'{"param1": "value1"}\'
+                placeholder='{"param1": "value1"}'
                 className="bg-gray-700 border-gray-600 text-white placeholder-gray-500 focus:ring-orange-500 focus:border-orange-500 mt-1"
               />
             </div>

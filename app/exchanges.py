@@ -32,13 +32,13 @@ class ExchangeManager:
         
         if nonce_identifier not in self.gemini_nonces:
             self.gemini_nonces[nonce_identifier] = current_time_ms
-            logger.info(f"Gemini nonce for \'{nonce_identifier}\': Initialized to current_time_ms {current_time_ms}.")
+            logger.info(f"Gemini nonce for '{nonce_identifier}': Initialized to current_time_ms {current_time_ms}.")
         elif self.gemini_nonces[nonce_identifier] < current_time_ms:
             self.gemini_nonces[nonce_identifier] = current_time_ms
-            logger.info(f"Gemini nonce for \'{nonce_identifier}\': Updated to current_time_ms {current_time_ms} (was {previous_stored_nonce}).")
+            logger.info(f"Gemini nonce for '{nonce_identifier}': Updated to current_time_ms {current_time_ms} (was {previous_stored_nonce}).")
         else:
             self.gemini_nonces[nonce_identifier] += 1
-            logger.info(f"Gemini nonce for \'{nonce_identifier}\': Incremented from {previous_stored_nonce} to {self.gemini_nonces[nonce_identifier]} (current_time_ms was {current_time_ms}).")
+            logger.info(f"Gemini nonce for '{nonce_identifier}': Incremented from {previous_stored_nonce} to {self.gemini_nonces[nonce_identifier]} (current_time_ms was {current_time_ms}).")
         
         new_nonce_val = self.gemini_nonces[nonce_identifier]
         return str(new_nonce_val)
@@ -93,7 +93,7 @@ class ExchangeManager:
             
             logger.info(f"Loading markets for {exchange_id}...")
             await exchange.load_markets()
-            logger.info(f"Successfully loaded markets for {exchange_id}. Market count: {len(exchange.markets) if exchange.markets else \'N/A\'}.")
+            logger.info(f"Successfully loaded markets for {exchange_id}. Market count: {len(exchange.markets) if exchange.markets else 'N/A'}.")
             
             logger.info(f"Attempting to fetch balances to verify API key for {exchange_id}...")
             try:
@@ -250,110 +250,62 @@ class ExchangeManager:
             self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"Unexpected error: {e_unhandled}")
             return None
 
-    async def fetch_order_book(self, exchange_id: str, symbol: str) -> Optional[OrderBook]:
+    async def fetch_order_book(self, exchange_id: str, symbol: str, limit: int = 20) -> Optional[OrderBook]: # Added limit parameter
         if exchange_id not in self.exchanges:
             logger.warning(f"Cannot fetch order book: Exchange {exchange_id} not connected.")
             return None
+        
         exchange = self.exchanges[exchange_id]
         try:
-            logger.debug(f"Fetching order book for {symbol} on {exchange_id}...")
-            order_book_data = await exchange.fetch_order_book(symbol)
+            logger.debug(f"Fetching order book for {symbol} on {exchange_id} with limit {limit}...")
+            raw_ob = await exchange.fetch_order_book(symbol, limit=limit)
             
-            bids = [OrderBookEntry(price=bid[0], quantity=bid[1]) for bid in order_book_data.get("bids", [])]
-            asks = [OrderBookEntry(price=ask[0], quantity=ask[1]) for ask in order_book_data.get("asks", [])]
-            
-            timestamp_ms = order_book_data.get("timestamp")
-            timestamp_dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc) if timestamp_ms else datetime.now(timezone.utc)
+            # Ensure bids and asks are sorted correctly (desc for bids, asc for asks by price)
+            # CCXT usually returns them sorted, but good to be defensive.
+            # Bids: highest price first. Asks: lowest price first.
+            bids = sorted([OrderBookEntry(price=float(b[0]), amount=float(b[1])) for b in raw_ob.get("bids", [])], key=lambda x: x.price, reverse=True)
+            asks = sorted([OrderBookEntry(price=float(a[0]), amount=float(a[1])) for a in raw_ob.get("asks", [])], key=lambda x: x.price)
 
             order_book = OrderBook(
                 symbol=symbol,
-                bids=bids,
-                asks=asks,
-                timestamp=timestamp_dt,
+                bids=bids[:limit], # Apply limit again after potential re-sorting, though ccxt should handle it
+                asks=asks[:limit],
+                timestamp=raw_ob.get("timestamp", int(time.time() * 1000)),
                 exchange=exchange_id
             )
-            # logger.debug(f"Successfully fetched order book for {symbol} on {exchange_id}.") # Too verbose
+            logger.debug(f"Successfully fetched order book for {symbol} on {exchange_id}. Top bid: {bids[0].price if bids else 'N/A'}, Top ask: {asks[0].price if asks else 'N/A'}")
             return order_book
-        except ccxt.NetworkError as e:
-            logger.error(f"Network error fetching order book for {symbol} on {exchange_id}: {e}", exc_info=True)
-        except ccxt.ExchangeError as e:
-            logger.error(f"Exchange error fetching order book for {symbol} on {exchange_id}: {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"Unexpected error fetching order book for {symbol} on {exchange_id}: {e}", exc_info=True)
-        return None
+            logger.error(f"Error fetching order book for {symbol} on {exchange_id}: {e}", exc_info=True)
+            return None
 
-    async def get_taker_fee(self, exchange_id: str, symbol: str) -> Optional[float]:
+    async def fetch_ticker(self, exchange_id: str, symbol: str) -> Optional[Dict[str, Any]]:
         if exchange_id not in self.exchanges:
-            logger.warning(f"Cannot get taker fee: Exchange {exchange_id} not connected.")
-            return settings.DEFAULT_TAKER_FEE # Return default if not connected
-
+            logger.warning(f"Cannot fetch ticker: Exchange {exchange_id} not connected.")
+            return None
         exchange = self.exchanges[exchange_id]
-        if exchange_id not in self.taker_fees:
-            self.taker_fees[exchange_id] = {}
+        try:
+            ticker = await exchange.fetch_ticker(symbol)
+            return ticker
+        except Exception as e:
+            logger.error(f"Error fetching ticker for {symbol} on {exchange_id}: {e}", exc_info=True)
+            return None
 
-        if symbol not in self.taker_fees[exchange_id]:
-            try:
-                logger.debug(f"Fetching trading fees for {symbol} on {exchange_id}...")
-                # Ensure markets are loaded if not already (should be by connect_exchange)
-                if not exchange.markets or not exchange.markets_by_id:
-                    logger.info(f"Markets not loaded for {exchange_id} before fetching fees. Loading now...")
-                    await exchange.load_markets()
-                
-                # Check if the symbol exists in the loaded markets
-                if symbol not in exchange.markets:
-                    logger.error(f"Symbol {symbol} not found in markets for {exchange_id} when fetching fees.")
-                    self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-                    return settings.DEFAULT_TAKER_FEE
+    async def create_order(self, exchange_id: str, symbol: str, type: str, side: str, amount: float, price: Optional[float] = None, params: Optional[Dict] = None) -> Optional[Dict[str, Any]]:
+        if exchange_id not in self.exchanges:
+            logger.error(f"Cannot create order: Exchange {exchange_id} not connected.")
+            return None
+        exchange = self.exchanges[exchange_id]
+        if not exchange.has.get("createOrder"):
+            logger.error(f"Exchange {exchange_id} does not support createOrder.")
+            return None
+        try:
+            order = await exchange.create_order(symbol, type, side, amount, price, params)
+            logger.info(f"Order created on {exchange_id} for {symbol}: {order.get('id')}")
+            return order
+        except Exception as e:
+            logger.error(f"Error creating order on {exchange_id} for {symbol}: {e}", exc_info=True)
+            return None
 
-                # fetchTradingFees is a unified method, but not all exchanges support it directly for single symbols.
-                # Some exchanges return all fees, some require symbol. CCXT tries to handle this.
-                # Alternative: market = exchange.market(symbol); return market["taker"]
-                market_info = exchange.market(symbol)
-                if market_info and market_info.get("taker") is not None:
-                    self.taker_fees[exchange_id][symbol] = market_info["taker"]
-                    logger.info(f"Using market_info.taker fee for {symbol} on {exchange_id}: {market_info[\'taker\']}")
-                else:
-                    # Fallback or if market_info doesn_t have taker fee directly
-                    logger.warning(f"Market info for {symbol} on {exchange_id} did not directly provide taker fee. Attempting fetchTradingFee (singular). Info: {market_info}")
-                    # fetchTradingFee (singular) is preferred if available
-                    if exchange.has.get("fetchTradingFee"): # Check if exchange supports fetchTradingFee
-                        fee_data = await exchange.fetchTradingFee(symbol)
-                        self.taker_fees[exchange_id][symbol] = fee_data["taker"]
-                        logger.info(f"Fetched trading fee (singular) for {symbol} on {exchange_id}: {fee_data[\'taker\']}")
-                    elif exchange.has.get("fetchTradingFees"): # Fallback to fetchTradingFees (plural)
-                        fees_data = await exchange.fetchTradingFees()
-                        if symbol in fees_data:
-                            self.taker_fees[exchange_id][symbol] = fees_data[symbol]["taker"]
-                            logger.info(f"Fetched trading fees (plural) for {symbol} on {exchange_id}: {fees_data[symbol][\'taker\']}")
-                        else:
-                            logger.warning(f"Could not find {symbol} in plural fees for {exchange_id}. Using default.")
-                            self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-                    else:
-                        logger.warning(f"Exchange {exchange_id} does not support fetchTradingFee or fetchTradingFees. Using default taker fee for {symbol}.")
-                        self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-
-            except ccxt.NetworkError as e:
-                logger.error(f"Network error fetching taker fee for {symbol} on {exchange_id}: {e}", exc_info=True)
-                self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-            except ccxt.ExchangeNotAvailable as e:
-                 logger.error(f"ExchangeNotAvailable fetching taker fee for {symbol} on {exchange_id}: {e}. Using default.", exc_info=True)
-                 self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-            except ccxt.ExchangeError as e:
-                logger.error(f"Exchange error fetching taker fee for {symbol} on {exchange_id}: {e}", exc_info=True)
-                self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-            except Exception as e:
-                logger.error(f"Unexpected error fetching taker fee for {symbol} on {exchange_id}: {e}", exc_info=True)
-                self.taker_fees[exchange_id][symbol] = settings.DEFAULT_TAKER_FEE
-        
-        return self.taker_fees[exchange_id].get(symbol, settings.DEFAULT_TAKER_FEE)
-
-    async def close_all_connections(self):
-        logger.info("Closing all active exchange connections...")
-        exchange_ids = list(self.exchanges.keys())
-        for ex_id in exchange_ids:
-            await self.disconnect_exchange(ex_id)
-        logger.info("All exchange connections have been processed for closure.")
-
-# Instantiate the manager for use in the application
 exchange_manager = ExchangeManager()
 

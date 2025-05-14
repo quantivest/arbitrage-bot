@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     DEFAULT_SLIPPAGE_PERCENTAGE: float = 0.0005 # Default 0.05% slippage if not calculable
     MIN_PROFIT_PERCENTAGE_THRESHOLD: float = 0.0002 # Minimum 0.02% profit after all costs to execute trade
     MIN_TRADE_AMOUNT_BASE: float = 0.00001 # Minimum trade amount in base currency (e.g., 0.00001 BTC)
-    # MAX_TRADE_AMOUNT_QUOTE is handled by arbitrage_bot.max_trade_amount = 750.0 (USDT)
+    MIN_TRADE_AMOUNT_QUOTE: float = 10.0 # Minimum trade amount in quote currency (e.g., 10 USDT)
+    MAX_TRADE_AMOUNT_QUOTE: float = 750.0 # Maximum trade amount for a single leg in quote currency (e.g., 750 USDT)
 
     # Failsafe parameters
     FAILSAFE_PAIR_MAX_FAILURES: int = 5 # Max failures for a specific pair on an exchange before disabling it
@@ -55,6 +56,7 @@ class Settings(BaseSettings):
     MAX_ALERTS_WEBSOCKET: int = 10 # Max alerts to send in initial websocket status
     MAX_ALERTS_STORED: int = 50 # Max alerts to store in memory
     TEST_MODE_TRADE_INTERVAL_ITERATIONS: int = 10 # How many main loop iterations before a test trade is simulated
+    ORDER_BOOK_DEPTH: int = 20 # How many levels of bids/asks to fetch for order books
 
     class Config:
         env_file = ".env"
