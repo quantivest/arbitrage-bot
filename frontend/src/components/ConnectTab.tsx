@@ -3,30 +3,29 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert"; // MODIFICATION: Added AlertTitle
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { exchangeApi, botApi } from "../api";
-import { BotStatus, ExchangeBalance, AlertMessage, FailsafeStatusData } from "../types"; // MODIFICATION: Added AlertMessage, FailsafeStatusData
-import { AlertCircle, CheckCircle, RefreshCw, Play, Square } from "lucide-react";
+import { BotStatusPayload, ExchangeBalance, AlertMessage, FailsafeStatusData } from "../types"; // Ensure BotStatusPayload is the correct type used by App.tsx
+import { AlertCircle, CheckCircle, Play, Square } from "lucide-react";
 
 interface ConnectTabProps {
-  botStatus: BotStatus;
-  // onBotStatusChange: (running: boolean) => void; // MODIFICATION: Replaced with onBotAction
-  onBotAction: (action: "start_live" | "stop") => Promise<void>; // MODIFICATION: Unified bot action
-  supportedExchanges: string[]; // MODIFICATION: Pass supported exchanges as prop
-  balances: ExchangeBalance[]; // MODIFICATION: Pass balances as prop
-  alerts: AlertMessage[];
-  failsafeStatus: FailsafeStatusData | null;
-  onReactivate: (type: "pair" | "exchange" | "global", entity?: string) => Promise<void>;
+  botStatus: BotStatusPayload; // Changed from BotStatus to BotStatusPayload for clarity and consistency
+  onBotAction: (action: "start_live" | "stop") => Promise<void>;
+  supportedExchanges: string[];
+  balances: ExchangeBalance[]; 
+  alerts: AlertMessage[]; // Assuming alerts are passed down if needed
+  failsafeStatus: FailsafeStatusData | null; // Assuming failsafeStatus is passed down
+  onReactivateFailsafe: (type: "pair" | "exchange" | "global", entity?: string) => Promise<void>; // Added from App.tsx
 }
 
 export default function ConnectTab({
   botStatus,
   onBotAction,
   supportedExchanges,
-  balances,
-  alerts,
-  failsafeStatus,
-  onReactivate
+  // balances, // Balances are now fetched within the component if needed, or rely on botStatus for connected exchanges' balances
+  // alerts, // Alerts are handled globally or in specific tabs like Dashboard
+  // failsafeStatus,
+  // onReactivateFailsafe
 }: ConnectTabProps) {
   const [selectedExchange, setSelectedExchange] = useState<string>("");
   const [apiKey, setApiKey] = useState<string>("");
@@ -75,10 +74,9 @@ export default function ConnectTab({
       });
 
       if (connectResult.success) {
-        setConnectSuccess(`Successfully connected to ${selectedExchange}. Balances will update shortly.`);
-        // Trigger a refresh of bot status which should include connected exchanges
-        // This will be handled by App.tsx polling or WebSocket update
-        await botApi.getStatus(); // Force a status refresh to update connected exchanges list in App.tsx
+        setConnectSuccess(`Successfully connected to ${selectedExchange}. Status will update via WebSocket.`);
+        // App.tsx's WebSocket listener will update botStatus, including connected_exchanges
+        // No need to call botApi.getStatus() here if WebSocket updates are reliable.
         setApiKey("");
         setApiSecret("");
         setAdditionalParams("");
@@ -86,7 +84,9 @@ export default function ConnectTab({
         setConnectError(connectResult.message || "Failed to connect to exchange.");
       }
     } catch (error: any) {
-      setConnectError(error.message || "Failed to connect to exchange");
+      const errorMessage = error.response?.data?.detail || error.message || "Failed to connect to exchange";
+      setConnectError(errorMessage);
+      console.error("ConnectTab connect error:", error.response?.data || error);
     }
   };
 
@@ -96,37 +96,36 @@ export default function ConnectTab({
       if (botStatus.is_running) {
         await onBotAction("stop");
       } else {
-        if (!botStatus.active_exchanges || botStatus.active_exchanges.length < 2) {
+        if (!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) { // FIX: Use connected_exchanges
           setActionError("Minimum 2 exchanges must be connected to start the bot.");
           return;
         }
         await onBotAction("start_live");
       }
     } catch (error: any) {
-      setActionError(error.message || "Failed to start/stop bot");
+      const errorMessage = error.response?.data?.detail || error.message || "Failed to start/stop bot";
+      setActionError(errorMessage);
+      console.error("ConnectTab start/stop error:", error.response?.data || error);
     }
   };
-
-  const getExchangeBalance = (exchangeId: string, asset: string): number => {
-    const exchangeBal = balances.find(b => b.exchange === exchangeId);
-    return exchangeBal?.balances[asset]?.free ?? 0;
+  
+  // Helper to get balance for a specific exchange and asset from botStatus.exchange_balances
+  const getExchangeBalanceDisplay = (exchangeId: string, asset: string): string => {
+    const exchangeBal = botStatus.exchange_balances?.find(b => b.exchange === exchangeId);
+    return exchangeBal?.balances[asset]?.free?.toFixed(2) ?? "N/A";
   };
 
   return (
     <div className="space-y-6">
-      {/* Page Title - Consistent with other tabs */}
-      {/* <h2 className="text-3xl font-bold tracking-tight text-white">Live Mode</h2> */}
-      {/* <p className="text-gray-400">Connect to exchanges and manage the live arbitrage bot.</p> */}
-
       {connectError && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Connection Error</AlertTitle>
-          <AlertDescription>{connectError}</AlertDescription>
+          <AlertDescription>{typeof connectError === 'object' ? JSON.stringify(connectError) : connectError}</AlertDescription>
         </Alert>
       )}
       {connectSuccess && (
-        <Alert variant="success" className="mb-4"> {/* MODIFICATION: Shadcn doesn't have success, use custom or default */}
+        <Alert variant="success" className="mb-4">
           <CheckCircle className="h-4 w-4" />
           <AlertTitle>Connection Success</AlertTitle>
           <AlertDescription>{connectSuccess}</AlertDescription>
@@ -136,7 +135,7 @@ export default function ConnectTab({
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Action Error</AlertTitle>
-          <AlertDescription>{actionError}</AlertDescription>
+          <AlertDescription>{typeof actionError === 'object' ? JSON.stringify(actionError) : actionError}</AlertDescription>
         </Alert>
       )}
 
@@ -214,16 +213,16 @@ export default function ConnectTab({
               </CardDescription>
             </CardHeader>
             <CardContent>
-                <div className={`p-4 rounded-md mb-4 ${botStatus.is_running ? "bg-green-700/30 border-green-500" : "bg-red-700/30 border-red-500"} border`}>
+                <div className={`p-4 rounded-md mb-4 ${botStatus.is_running && botStatus.current_mode === 'live' ? "bg-green-700/30 border-green-500" : "bg-red-700/30 border-red-500"} border`}>
                     <div className="flex items-center">
-                        {botStatus.is_running ? <CheckCircle className="h-5 w-5 text-green-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
-                        <span className={`text-lg font-medium ${botStatus.is_running ? "text-green-300" : "text-red-300"}`}>
-                            Bot Status: {botStatus.is_running ? "Running (Live Mode)" : "Stopped"}
+                        {botStatus.is_running && botStatus.current_mode === 'live' ? <CheckCircle className="h-5 w-5 text-green-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
+                        <span className={`text-lg font-medium ${botStatus.is_running && botStatus.current_mode === 'live' ? "text-green-300" : "text-red-300"}`}>
+                            Bot Status: {botStatus.is_running && botStatus.current_mode === 'live' ? "Running (Live Mode)" : "Stopped"}
                         </span>
                     </div>
                 </div>
-              {(!botStatus.active_exchanges || botStatus.active_exchanges.length < 2) && !botStatus.is_running && (
-                <Alert variant="warning" className="mb-4"> {/* MODIFICATION: Shadcn doesn't have warning, use custom or default */}
+              {(!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) && !(botStatus.is_running && botStatus.current_mode === 'live') && (
+                <Alert variant="warning" className="mb-4">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Minimum Exchanges Required</AlertTitle>
                   <AlertDescription>
@@ -235,11 +234,11 @@ export default function ConnectTab({
             <CardFooter>
               <Button 
                 onClick={handleStartStop}
-                className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${botStatus.is_running ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
-                disabled={(!botStatus.active_exchanges || botStatus.active_exchanges.length < 2) && !botStatus.is_running}
+                className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${botStatus.is_running && botStatus.current_mode === 'live' ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
+                disabled={(!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) && !(botStatus.is_running && botStatus.current_mode === 'live')}
               >
-                {botStatus.is_running ? <Square size={20}/> : <Play size={20}/>}
-                <span>{botStatus.is_running ? "Stop Live Bot" : "Start Live Bot"}</span>
+                {botStatus.is_running && botStatus.current_mode === 'live' ? <Square size={20}/> : <Play size={20}/>}
+                <span>{botStatus.is_running && botStatus.current_mode === 'live' ? "Stop Live Bot" : "Start Live Bot"}</span>
               </Button>
             </CardFooter>
           </Card>
@@ -247,31 +246,32 @@ export default function ConnectTab({
           <Card className="bg-gray-800/50 border-gray-700">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-white">Connected Exchanges</CardTitle>
-              {/* <Button variant="outline" size="icon" onClick={async () => await botApi.getStatus()} title="Refresh connection status" className="text-gray-400 hover:text-white border-gray-600 hover:bg-gray-700">
-                <RefreshCw className="h-4 w-4" /> 
-              </Button> */} 
-              {/* Refresh is handled by App.tsx polling/WS */}
             </CardHeader>
             <CardContent>
-              {botStatus.active_exchanges && botStatus.active_exchanges.length > 0 ? (
+              {botStatus.connected_exchanges && botStatus.connected_exchanges.length > 0 ? ( // FIX: Use connected_exchanges
                 <ul className="space-y-2">
-                  {botStatus.active_exchanges.map((exchange) => (
-                    <li key={exchange} className="flex justify-between items-center p-3 bg-gray-700/70 border border-gray-600 rounded-md">
-                      <span className="font-medium text-gray-200">
-                        {exchange.charAt(0).toUpperCase() + exchange.slice(1)}
-                      </span>
-                      <div className="text-right">
-                        <div className="flex items-center text-green-400">
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            <span className="text-sm">Connected</span>
-                        </div>
-                        <span className="text-xs text-gray-400">
-                            USDT: {getExchangeBalance(exchange, "USDT").toFixed(2)}
-                        </span>
-                        {/* Add other key asset balances if needed */}
-                      </div>
-                    </li>
-                  ))}
+                  {botStatus.connected_exchanges.map((exchange) => { // FIX: Use connected_exchanges
+                    const balance = botStatus.exchange_balances?.find(b => b.exchange === exchange);
+                    const usdtAmount = balance?.balances?.USDT?.free?.toFixed(2) ?? "N/A";
+                    const status = balance ? (balance.error ? "Error" : "OK") : "Fetching...";
+                    return (
+                        <li key={exchange} className="flex justify-between items-center p-3 bg-gray-700/70 border border-gray-600 rounded-md">
+                          <span className="font-medium text-gray-200">
+                            {exchange.charAt(0).toUpperCase() + exchange.slice(1)}
+                          </span>
+                          <div className="text-right">
+                            <div className={`flex items-center ${status === "OK" ? "text-green-400" : status === "Error" ? "text-red-400" : "text-yellow-400"}`}>
+                                {status === "OK" && <CheckCircle className="h-4 w-4 mr-1" />}
+                                {status === "Error" && <AlertCircle className="h-4 w-4 mr-1" />}
+                                <span className="text-sm">{status}</span>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                                USDT: {usdtAmount}
+                            </span>
+                          </div>
+                        </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="text-center text-gray-400 py-4">No exchanges connected.</p>
@@ -280,9 +280,7 @@ export default function ConnectTab({
           </Card>
         </div>
       </div>
-
-      {/* Alerts and Failsafes Section - Moved from Dashboard to be more general if needed, or keep in Dashboard */}
-      {/* For now, assuming Alerts and Failsafes are primarily on DashboardTab */}
     </div>
   );
 }
+
