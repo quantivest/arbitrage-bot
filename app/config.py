@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     FAILSAFE_COOLDOWN_MINUTES_PAIR: int = 5 # Cooldown period for disabled pairs
     FAILSAFE_COOLDOWN_MINUTES_EXCHANGE: int = 10 # Cooldown period for disabled exchanges
 
+    # WebSocket settings
+    WEBSOCKET_BROADCAST_INTERVAL_SECONDS: float = 2.0 # Interval for broadcasting status updates via WebSocket
+    MAX_ALERTS_WEBSOCKET: int = 10 # Max alerts to send in initial websocket status
+    MAX_ALERTS_STORED: int = 50 # Max alerts to store in memory
+    TEST_MODE_TRADE_INTERVAL_ITERATIONS: int = 10 # How many main loop iterations before a test trade is simulated
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
