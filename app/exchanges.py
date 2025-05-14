@@ -1,11 +1,14 @@
 import ccxt.async_support as ccxt
 import asyncio
 import time
-import json # Added for pretty printing dicts in logs
+import json
 from typing import Dict, List, Optional, Tuple, Any
+from datetime import datetime, timezone # Added timezone for UTC awareness
 from .models import Balance, ExchangeBalance, OrderBook, OrderBookEntry
 from .config import settings
 import logging
+import base64 # For Kraken error check
+import binascii # For Kraken error check
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +26,9 @@ class ExchangeManager:
         """Generates a strictly increasing nonce for Gemini API calls, keyed by a portion of the API key."""
         nonce_identifier = api_key_for_nonce_logic[-8:] if len(api_key_for_nonce_logic) >= 8 else api_key_for_nonce_logic
         
-        if nonce_identifier not in self.gemini_nonces:
-            self.gemini_nonces[nonce_identifier] = int(time.time() * 1000000) 
-            logger.info(f"Initialized Gemini nonce for key ending ...{nonce_identifier} to {self.gemini_nonces[nonce_identifier]}")
+        current_time_micros = int(time.time() * 1_000_000) # More precise time
+        if nonce_identifier not in self.gemini_nonces or self.gemini_nonces[nonce_identifier] < current_time_micros:
+            self.gemini_nonces[nonce_identifier] = current_time_micros
         else:
             self.gemini_nonces[nonce_identifier] += 1
         return str(self.gemini_nonces[nonce_identifier])
@@ -47,14 +50,16 @@ class ExchangeManager:
 
             exchange_class = getattr(ccxt, exchange_id_lower)
             current_api_key_for_ccxt = api_key.strip()
+            current_api_secret_for_ccxt = api_secret.strip()
 
             exchange_config = {
                 "apiKey": current_api_key_for_ccxt,
-                "secret": api_secret.strip(), # Keep secret for CCXT, but don't log it directly
+                "secret": current_api_secret_for_ccxt, 
                 "enableRateLimit": True,
             }
 
             if exchange_id_lower == "gemini":
+                # Pass the function itself, CCXT handles calling it.
                 exchange_config["nonce"] = lambda: self._get_gemini_nonce(current_api_key_for_ccxt)
                 logger.info(f"Gemini exchange: Nonce function configured.")
 
@@ -62,29 +67,56 @@ class ExchangeManager:
                 logger.info(f"Applying additional parameters for {exchange_id}: {additional_params}")
                 exchange_config.update(additional_params)
             
-            # Log config without sensitive details for debugging
-            loggable_config = {k: v for k, v in exchange_config.items() if k != "secret" and k != "apiKey"}
+            loggable_config = {k: v for k, v in exchange_config.items() if k not in ["secret", "apiKey"]}
             loggable_config["apiKey_present"] = bool(exchange_config.get("apiKey"))
             loggable_config["secret_present"] = bool(exchange_config.get("secret"))
-            logger.debug(f"Exchange config for {exchange_id} (secrets masked): {json.dumps(loggable_config, indent=2)}")
-            
+            if "nonce" in loggable_config and callable(loggable_config["nonce"]):
+                 loggable_config["nonce"] = "<function>" # Replace function with string for logging
+            try:
+                logger.debug(f"Exchange config for {exchange_id} (secrets masked): {json.dumps(loggable_config, indent=2)}")
+            except TypeError as te_json:
+                logger.error(f"Error serializing loggable_config for {exchange_id}: {te_json}. Config: {loggable_config}")
+                # Fallback logging if json.dumps fails
+                logger.debug(f"Exchange config for {exchange_id} (secrets masked, raw): {loggable_config}")
+
             logger.info(f"Initializing CCXT exchange class for {exchange_id}...")
             exchange = exchange_class(exchange_config)
             logger.info(f"CCXT exchange class for {exchange_id} initialized.")
             
             logger.info(f"Loading markets for {exchange_id}...")
             await exchange.load_markets()
-            logger.info(f"Successfully loaded markets for {exchange_id}. Market count: {len(exchange.markets) if exchange.markets else 'N/A'}. Connection appears stable.")
+            logger.info(f"Successfully loaded markets for {exchange_id}. Market count: {len(exchange.markets) if exchange.markets else 'N/A'}.")
             
+            # Attempt a lightweight authenticated call to verify API keys properly
+            logger.info(f"Attempting to fetch balances to verify API key for {exchange_id}...")
+            try:
+                # Fetch balance is a good test, but can be heavy. Some exchanges might have a lighter test.
+                # For now, use fetch_balance, but only a small part of it.
+                await exchange.fetch_balance(params={"limit": 1}) # Some exchanges might support limit here
+                logger.info(f"API key for {exchange_id} appears valid after balance fetch attempt.")
+            except ccxt.AuthenticationError as e_auth_verify:
+                logger.error(f"API key verification failed for {exchange_id} during balance fetch: {e_auth_verify}", exc_info=True)
+                await exchange.close() # Close the partially opened exchange
+                return False, f"Authentication failed for {exchange_id}. Check API key and secret. Details: {e_auth_verify}"
+            except Exception as e_verify: # Catch other errors during this verification step
+                logger.warning(f"Could not fully verify API key for {exchange_id} via balance fetch (non-auth error): {e_verify}", exc_info=True)
+                # Proceed with connection if load_markets succeeded, but with a warning.
+                # The actual balance fetching later will show the error if it persists.
+
             self.exchanges[exchange_id] = exchange
             return True, f"Successfully connected to {exchange_id}."
 
         except ccxt.NetworkError as e:
             logger.error(f"Network error connecting to {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
             return False, f"Network error connecting to {exchange_id}: {e}"
-        except ccxt.AuthenticationError as e: # More specific than just ExchangeError for auth issues
+        except ccxt.AuthenticationError as e:
             logger.error(f"Authentication error connecting to {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
-            return False, f"Authentication failed for {exchange_id}. Check API key and secret. Details: {e}"
+            specific_msg = str(e)
+            if exchange_id_lower == "kraken" and "padding" in specific_msg.lower():
+                specific_msg = "Incorrect API secret format (padding error). Please ensure it is correct."
+            elif exchange_id_lower == "bitstamp" and "invalid signature" in specific_msg.lower():
+                specific_msg = "Invalid API signature. Ensure correct API key, secret, and customer ID/UID (if applicable for main account vs subaccount)."
+            return False, f"Authentication failed for {exchange_id}. {specific_msg}"
         except ccxt.ExchangeError as e:
             logger.error(f"Exchange error connecting to {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
             if "Invalid API Key" in str(e) or "InvalidSignature" in str(e):
@@ -94,6 +126,8 @@ class ExchangeManager:
             return False, f"Exchange error for {exchange_id}: {e}"
         except Exception as e:
             logger.error(f"Unexpected error connecting to {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
+            if isinstance(e, TypeError) and "is not JSON serializable" in str(e):
+                 return False, f"Internal configuration error for {exchange_id}. Please report this. Details: {e}"
             return False, f"An unexpected error occurred while connecting to {exchange_id}. Please check logs for details."
     
     async def disconnect_exchange(self, exchange_id: str) -> Tuple[bool, str]:
@@ -101,66 +135,99 @@ class ExchangeManager:
         if exchange_id in self.exchanges:
             try:
                 await self.exchanges[exchange_id].close()
+                logger.info(f"Successfully closed CCXT exchange object for {exchange_id}.")
+            except Exception as e_close:
+                logger.error(f"Error closing CCXT exchange object for {exchange_id}: {e_close}", exc_info=True)
+            finally:
+                # Always remove from local tracking regardless of close() success
                 del self.exchanges[exchange_id]
                 if exchange_id in self.exchange_balances:
                     del self.exchange_balances[exchange_id]
                 if exchange_id in self.taker_fees:
                     del self.taker_fees[exchange_id]
-                logger.info(f"Successfully disconnected from {exchange_id}.")
+                logger.info(f"Removed {exchange_id} from active ExchangeManager lists.")
                 return True, f"Successfully disconnected from {exchange_id}."
-            except Exception as e:
-                logger.error(f"Error closing connection to {exchange_id}: {e}", exc_info=True)
-                # Still remove from active list even if close() fails
-                if exchange_id in self.exchanges: del self.exchanges[exchange_id]
-                if exchange_id in self.exchange_balances: del self.exchange_balances[exchange_id]
-                if exchange_id in self.taker_fees: del self.taker_fees[exchange_id]
-                return False, f"Error closing connection to {exchange_id}, but removed from active list."
         else:
-            logger.warning(f"Exchange {exchange_id} not found or not connected.")
+            logger.warning(f"Exchange {exchange_id} not found or not connected for disconnection.")
             return False, f"Exchange {exchange_id} not found or not connected."
 
     async def fetch_all_balances(self) -> Dict[str, ExchangeBalance]:
         logger.info("Fetching balances for all connected exchanges.")
+        active_exchange_ids = list(self.exchanges.keys()) # Get a snapshot of currently connected exchanges
         results = await asyncio.gather(
-            *[self.fetch_balances_for_exchange(ex_id) for ex_id in self.exchanges.keys()],
+            *[self.fetch_balances_for_exchange(ex_id) for ex_id in active_exchange_ids],
             return_exceptions=True
         )
-        for i, ex_id in enumerate(list(self.exchanges.keys())): # Use list copy in case exchanges dict changes
-            if isinstance(results[i], Exception):
-                logger.error(f"Failed to fetch balances for {ex_id}: {results[i]}")
-                if ex_id not in self.exchange_balances:
-                     self.exchange_balances[ex_id] = ExchangeBalance(exchange=ex_id, balances={}, timestamp=datetime.utcnow(), error=str(results[i]))
+        for i, ex_id in enumerate(active_exchange_ids):
+            result = results[i]
+            if isinstance(result, Exception):
+                logger.error(f"Failed to fetch balances for {ex_id} (exception in gather): {result}", exc_info=result)
+                error_message = f"Failed to fetch balances: {type(result).__name__} - {str(result)}"
+                if ex_id not in self.exchange_balances or self.exchange_balances[ex_id].error is None:
+                     self.exchange_balances[ex_id] = ExchangeBalance(exchange=ex_id, balances={}, timestamp=datetime.now(timezone.utc), error=error_message)
                 else:
-                    self.exchange_balances[ex_id].error = str(results[i])
-                    self.exchange_balances[ex_id].timestamp = datetime.utcnow()
-            # If result is None (meaning fetch_balances_for_exchange handled its own error reporting and returned None)
-            # it might already be updated in self.exchange_balances by that method.
-            elif results[i] is None and ex_id not in self.exchange_balances:
-                 self.exchange_balances[ex_id] = ExchangeBalance(exchange=ex_id, balances={}, timestamp=datetime.utcnow(), error="Failed to fetch balances, see logs.")
+                    self.exchange_balances[ex_id].error = error_message
+                    self.exchange_balances[ex_id].timestamp = datetime.now(timezone.utc)
+            elif result is None: # fetch_balances_for_exchange returned None, implying it handled its own error logging and update
+                if ex_id not in self.exchange_balances or self.exchange_balances[ex_id].error is None:
+                    # This case should ideally be covered by fetch_balances_for_exchange setting an error
+                    logger.warning(f"fetch_balances_for_exchange for {ex_id} returned None but no error was set in exchange_balances. Setting a generic error.")
+                    self.exchange_balances[ex_id] = ExchangeBalance(exchange=ex_id, balances={}, timestamp=datetime.now(timezone.utc), error="Failed to fetch balances, see logs.")
+            # If result is an ExchangeBalance object, it was successful and already updated self.exchange_balances
 
-        return self.exchange_balances
+        return {ex_id: self.exchange_balances[ex_id] for ex_id in active_exchange_ids if ex_id in self.exchange_balances}
 
     async def fetch_balances_for_exchange(self, exchange_id: str) -> Optional[ExchangeBalance]:
         if exchange_id not in self.exchanges:
             logger.warning(f"Cannot fetch balances: Exchange {exchange_id} not connected.")
+            # Ensure an error state is recorded if we expect this exchange to be connected
+            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error="Not connected")
             return None
         exchange = self.exchanges[exchange_id]
         try:
             logger.debug(f"Fetching balances for {exchange_id}...")
             raw_balances = await exchange.fetch_balance()
             parsed_balances: Dict[str, Balance] = {}
+            
+            # Check if raw_balances itself is a dict, as expected by ccxt for most exchanges
+            if not isinstance(raw_balances, dict):
+                logger.error(f"Unexpected balance format from {exchange_id}. Expected dict, got {type(raw_balances)}. Data: {raw_balances}")
+                self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"Unexpected balance format: {type(raw_balances)}")
+                return self.exchange_balances[exchange_id]
+
+            # Iterate over 'free', 'used', 'total' at the top level if they exist (e.g. for aggregated balances)
+            # More commonly, balances are per-currency, so we iterate raw_balances.items()
             for currency, amounts in raw_balances.items():
-                if amounts and amounts.get("total") is not None and (amounts["total"] > 0 or currency.upper() == "USDT"):
+                if currency in ["info", "free", "used", "total"]: # Skip meta keys if they are at this level
+                    continue
+                
+                # Handle cases where 'amounts' might not be a dictionary (e.g. Binance US returning int for zero balance)
+                if isinstance(amounts, dict):
+                    total_amount = amounts.get("total", 0.0) or 0.0
+                    free_amount = amounts.get("free", 0.0) or 0.0
+                    used_amount = amounts.get("used", 0.0) or 0.0
+                elif isinstance(amounts, (int, float)):
+                    # If amounts is a number, assume it's the total and free, with zero used.
+                    # This is a guess based on the 'int' object error for Binance US.
+                    logger.warning(f"Received numerical balance for {currency} on {exchange_id}: {amounts}. Assuming it's total/free.")
+                    total_amount = float(amounts)
+                    free_amount = float(amounts)
+                    used_amount = 0.0
+                else:
+                    logger.warning(f"Skipping balance entry for {currency} on {exchange_id} due to unexpected type: {type(amounts)}")
+                    continue
+
+                if total_amount > 0 or currency.upper() == "USDT": # Keep USDT even if zero, and any other asset with balance
                     parsed_balances[currency] = Balance(
-                        free=amounts.get("free", 0.0) or 0.0,
-                        used=amounts.get("used", 0.0) or 0.0,
-                        total=amounts.get("total", 0.0) or 0.0
+                        free=free_amount,
+                        used=used_amount,
+                        total=total_amount
                     )
             
             exchange_balance_obj = ExchangeBalance(
                 exchange=exchange_id,
                 balances=parsed_balances,
-                timestamp=datetime.utcnow(), # Ensure this is imported: from datetime import datetime
+                timestamp=datetime.now(timezone.utc),
                 error=None
             )
             self.exchange_balances[exchange_id] = exchange_balance_obj
@@ -168,16 +235,16 @@ class ExchangeManager:
             return exchange_balance_obj
         except ccxt.NetworkError as e:
             logger.error(f"Network error fetching balances for {exchange_id}: {type(e).__name__} - {e}")
-            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.utcnow(), error=f"Network error: {e}")
+            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"Network error: {e}")
         except ccxt.AuthenticationError as e:
             logger.error(f"Authentication error fetching balances for {exchange_id}: {type(e).__name__} - {e}")
-            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.utcnow(), error=f"Authentication error: {e}")
+            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"Authentication error: {e}")
         except ccxt.ExchangeError as e:
             logger.error(f"Exchange error fetching balances for {exchange_id}: {type(e).__name__} - {e}")
-            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.utcnow(), error=f"Exchange error: {e}")
+            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"Exchange error: {e}")
         except Exception as e:
             logger.error(f"Unexpected error fetching balances for {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
-            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.utcnow(), error=f"An unexpected error occurred: {e}")
+            self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"An unexpected error occurred: {e}")
         return self.exchange_balances.get(exchange_id)
 
     def get_balance(self, exchange_id: str, currency: str) -> Optional[Balance]:
@@ -219,11 +286,12 @@ class ExchangeManager:
                 return None
             logger.debug(f"Fetching order book for {pair} on {exchange_id} (limit {limit})...")
             ob_data = await exchange.fetch_order_book(pair, limit)
-            # Ensure datetime is imported: from datetime import datetime
+            timestamp_ms = ob_data.get("timestamp")
+            dt_object = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc) if timestamp_ms else datetime.now(timezone.utc)
             return OrderBook(
                 pair=pair,
                 exchange=exchange_id,
-                timestamp=datetime.fromtimestamp(ob_data["timestamp"] / 1000) if ob_data.get("timestamp") else datetime.utcnow(),
+                timestamp=dt_object,
                 bids=[OrderBookEntry(price=entry[0], quantity=entry[1]) for entry in ob_data.get("bids", [])],
                 asks=[OrderBookEntry(price=entry[0], quantity=entry[1]) for entry in ob_data.get("asks", [])]
             )
@@ -243,12 +311,10 @@ class ExchangeManager:
             return None
         exchange = self.exchanges[exchange_id]
         try:
-            # Ensure markets are loaded if not already
             if not exchange.markets:
-                logger.info(f"Markets not loaded for {exchange_id}, loading now...")
+                logger.info(f"Markets not loaded for {exchange_id} to fetch taker fee, loading now...")
                 await exchange.load_markets(reload=True)
             
-            # Try to get specific fee for the pair
             if pair and pair in exchange.markets and exchange.markets[pair].get("taker") is not None:
                 fee = exchange.markets[pair]["taker"]
                 if exchange_id not in self.taker_fees: self.taker_fees[exchange_id] = {}
@@ -256,31 +322,32 @@ class ExchangeManager:
                 logger.info(f"Taker fee for {pair} on {exchange_id}: {fee}")
                 return fee
             
-            # Fallback: Try to find a general taker fee if specific pair fee is not available
-            # This part is heuristic and might need adjustment based on CCXT structure for various exchanges
             if exchange.fees and exchange.fees.get("trading") and exchange.fees["trading"].get("taker") is not None:
-                general_fee = exchange.fees["trading"]["taker"]
-                logger.info(f"Using general trading taker fee for {exchange_id} (pair: {pair}): {general_fee}")
+                fee = exchange.fees["trading"]["taker"]
+                logger.info(f"General trading taker fee for {exchange_id}: {fee} (used as fallback or default)")
+                # Store it generally if pair specific not found or pair not provided
                 if exchange_id not in self.taker_fees: self.taker_fees[exchange_id] = {}
-                self.taker_fees[exchange_id][pair or "default"] = general_fee
-                return general_fee
-
-            # Fallback to settings if no fee found via CCXT
-            default_fee = settings.EXCHANGE_DEFAULT_TAKER_FEE.get(exchange_id.lower(), 0.001) # Use lower for settings lookup
-            logger.warning(f"Could not find specific or general taker fee for {pair or 'any pair'} on {exchange_id}. Using default from settings: {default_fee}")
-            if exchange_id not in self.taker_fees: self.taker_fees[exchange_id] = {}
-            self.taker_fees[exchange_id][pair or "default"] = default_fee
-            return default_fee
+                if pair: 
+                    self.taker_fees[exchange_id][pair] = fee
+                else: # Store as a default for the exchange if no pair given
+                    self.taker_fees[exchange_id]["_default_"] = fee
+                return fee
             
-        except Exception as e:
-            logger.error(f"Error fetching taker fee for {exchange_id} (pair: {pair}): {type(e).__name__} - {e}", exc_info=True)
-            default_fee = settings.EXCHANGE_DEFAULT_TAKER_FEE.get(exchange_id.lower(), 0.001)
-            logger.warning(f"Using default taker fee {default_fee} for {exchange_id} due to error.")
-            if exchange_id not in self.taker_fees: self.taker_fees[exchange_id] = {}
-            self.taker_fees[exchange_id][pair or "default"] = default_fee
-            return default_fee
+            logger.warning(f"Could not determine taker fee for {exchange_id} (pair: {pair}). Using default from settings: {settings.DEFAULT_TAKER_FEE}")
+            return settings.DEFAULT_TAKER_FEE # Fallback to a configured default
 
-exchange_manager = ExchangeManager()
-# Ensure datetime is available for models if not already globally available
-from datetime import datetime
+        except ccxt.NetworkError as e:
+            logger.error(f"Network error fetching taker fee for {exchange_id}, pair {pair}: {type(e).__name__} - {e}")
+        except ccxt.AuthenticationError as e: # Unlikely for fees, but good practice
+            logger.error(f"Authentication error fetching taker fee for {exchange_id}, pair {pair}: {type(e).__name__} - {e}")
+        except ccxt.ExchangeError as e:
+            logger.error(f"Exchange error fetching taker fee for {exchange_id}, pair {pair}: {type(e).__name__} - {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching taker fee for {exchange_id}, pair {pair}: {type(e).__name__} - {e}", exc_info=True)
+        
+        logger.warning(f"Returning default taker fee {settings.DEFAULT_TAKER_FEE} for {exchange_id} (pair: {pair}) after error.")
+        return settings.DEFAULT_TAKER_FEE
+
+    def get_all_connected_exchanges(self) -> List[str]:
+        return list(self.exchanges.keys())
 
