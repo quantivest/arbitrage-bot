@@ -6,11 +6,11 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from .models import (
     ArbitrageOpportunity, ArbitrageTrade, Trade, OrderBook, AlertType, 
-    FailsafeStatus, OrderBookEntry, ExchangeBalanceUpdate, BotStatusUpdate, 
+    FailsafeStatus, FailsafeStatusData, OrderBookEntry, ExchangeBalanceUpdate, BotStatusUpdate, 
     TestSimulationStatusPayload, FailsafeStatusUpdate, AlertMessage, 
-    ExchangeConnectionStatus, OrderStatus, OrderType, OrderSide, TestModeSettings # Added TestModeSettings
+    ExchangeConnectionStatus, OrderStatus, OrderType, OrderSide, TestModeSettings
 )
-from .exchanges import exchange_manager # Assuming exchange_manager can provide ticker/price info
+from .exchanges import exchange_manager 
 from .config import settings
 import logging
 
@@ -21,13 +21,14 @@ class ArbitrageBot:
     
     def __init__(self):
         self.running = False
-        self.current_mode: str = "idle" # idle, live, test_simulating
+        self.current_mode: str = "idle" 
         self._main_loop_task: Optional[asyncio.Task] = None
         self.opportunities: List[ArbitrageOpportunity] = []
         self.trades: List[ArbitrageTrade] = []
         self.test_balances: Dict[str, Dict[str, Dict[str, float]]] = {}
         self.buffer_percentage = settings.BUFFER_PERCENTAGE
-        self.failsafe_status = FailsafeStatus(
+        # This is the internal FailsafeStatus model with all fields
+        self._failsafe_status_internal = FailsafeStatus(
             disabled_pairs={},
             disabled_exchanges={},
             global_trading_halt=False,
@@ -39,8 +40,7 @@ class ArbitrageBot:
         )
         self.alerts: List[AlertMessage] = []
         self.max_trade_amount_quote = 750.0
-        self.websocket_queues: List[asyncio.Queue] = [] # Not used by current api.py, but kept for potential direct use
-        self.current_test_settings: Optional[TestModeSettings] = None # Use the Pydantic model
+        self.current_test_settings: Optional[TestModeSettings] = None
         self.test_simulation_active_since: Optional[datetime] = None
         self.live_total_trades = 0
         self.live_total_profit = 0.0
@@ -65,8 +65,15 @@ class ArbitrageBot:
     async def get_alerts(self, limit: int = 10) -> List[AlertMessage]:
         return self.alerts[:limit]
 
-    async def get_failsafe_status(self) -> FailsafeStatus:
-        return self.failsafe_status
+    # Modified to return FailsafeStatusData as expected by BotStatusPayload
+    async def get_failsafe_status(self) -> FailsafeStatusData:
+        return FailsafeStatusData(
+            global_trading_halt=self._failsafe_status_internal.global_trading_halt,
+            global_halt_reason=self._failsafe_status_internal.global_halt_reason,
+            global_halt_timestamp=self._failsafe_status_internal.global_halt_timestamp,
+            disabled_exchanges=self._failsafe_status_internal.disabled_exchanges,
+            disabled_pairs=self._failsafe_status_internal.disabled_pairs
+        )
 
     async def get_test_simulation_status(self) -> TestSimulationStatusPayload:
         return TestSimulationStatusPayload(
@@ -93,8 +100,9 @@ class ArbitrageBot:
             try:
                 self.current_test_settings = TestModeSettings(**test_settings_data)
             except Exception as e:
-                logger.error(f"Invalid test settings provided: {e}")
+                logger.error(f"Invalid test settings provided: {e}. Data: {test_settings_data}", exc_info=True)
                 return False, f"Invalid test settings: {e}"
+            
             self.current_mode = "test_simulating"
             logger.info(f"Initializing test balances with settings: {self.current_test_settings}")
             init_success, init_msg = await self._initialize_test_balances(self.current_test_settings)
@@ -103,7 +111,7 @@ class ArbitrageBot:
                 return False, init_msg
             
             if self.current_test_settings.buffer_percentage is not None:
-                self.buffer_percentage = self.current_test_settings.buffer_percentage / 100.0 # Assuming input is % e.g. 0.01 for 0.01%
+                self.buffer_percentage = self.current_test_settings.buffer_percentage / 100.0 
             else:
                 self.buffer_percentage = settings.BUFFER_PERCENTAGE
             logger.info(f"Test Mode: Buffer percentage set to {self.buffer_percentage*100:.4f}%")
@@ -113,8 +121,6 @@ class ArbitrageBot:
 
         self.running = True
         self.opportunities = [] 
-        # self.trades = [] # Keep trades for historical view unless explicitly reset
-        # self.alerts = [] # Keep alerts
 
         loop = asyncio.get_event_loop()
         if self._main_loop_task and not self._main_loop_task.done():
@@ -164,15 +170,12 @@ class ArbitrageBot:
             return False, "No exchanges connected or specified for test mode."
 
         usdt_capital_per_exchange = test_settings.usdt_capital_per_exchange
-        asset_capital_usd_per_pair = test_settings.asset_capital_usd_per_pair # This is the USD value
+        asset_capital_usd_per_pair = test_settings.asset_capital_usd_per_pair 
 
         logger.info(f"Initializing test balances for exchanges: {exchanges_to_init}")
         logger.info(f"USDT capital per exchange: ${usdt_capital_per_exchange}")
         logger.info(f"USD value for each base asset (for {len(settings.USER_DEFINED_PAIRS)} pairs) per exchange: ${asset_capital_usd_per_pair}")
 
-        # Use the first connected exchange to fetch indicative prices for conversion
-        # This is a simplification; ideally, prices might vary slightly per exchange.
-        # For test mode, using one exchange's prices for all is acceptable.
         price_source_exchange = None
         if exchange_manager.exchanges:
             price_source_exchange = list(exchange_manager.exchanges.keys())[0]
@@ -180,6 +183,7 @@ class ArbitrageBot:
         if not price_source_exchange and asset_capital_usd_per_pair > 0:
             msg = "Cannot initialize asset balances in USD without at least one connected exchange to fetch prices."
             logger.error(msg)
+            await self._add_alert(AlertType.SYSTEM_ERROR, msg, "global")
             return False, msg
 
         for exchange_id in exchanges_to_init:
@@ -188,7 +192,7 @@ class ArbitrageBot:
             }
             for pair_str in settings.USER_DEFINED_PAIRS:
                 base_currency, quote_currency = pair_str.split("/")
-                if quote_currency != "USDT": # Ensure we are dealing with XXX/USDT pairs for this logic
+                if quote_currency != "USDT": 
                     logger.warning(f"Skipping non-USDT pair {pair_str} for USD-based asset initialization.")
                     continue
 
@@ -196,14 +200,17 @@ class ArbitrageBot:
                     asset_quantity = 0.0
                     if asset_capital_usd_per_pair > 0 and price_source_exchange:
                         try:
-                            # Attempt to fetch ticker for current price
                             ticker = await exchange_manager.fetch_ticker(price_source_exchange, pair_str)
                             if ticker and ticker.get("last") and ticker["last"] > 0:
                                 asset_quantity = asset_capital_usd_per_pair / ticker["last"]
+                                # Corrected f-string syntax below
+                                logger.info(f"For {pair_str} on {exchange_id}, ${asset_capital_usd_per_pair} at price {ticker['last']} = {asset_quantity:.8f} {base_currency}")
                             else:
                                 logger.warning(f"Could not fetch valid price for {pair_str} on {price_source_exchange}. Defaulting {base_currency} to 0 units for {exchange_id}.")
+                                await self._add_alert(AlertType.DATA_FETCH_ERROR, f"Could not fetch price for {pair_str} on {price_source_exchange} for test balance init.", exchange_id)
                         except Exception as e:
                             logger.error(f"Error fetching price for {pair_str} on {price_source_exchange} for test balance init: {e}. Defaulting {base_currency} to 0 units for {exchange_id}.")
+                            await self._add_alert(AlertType.DATA_FETCH_ERROR, f"Error fetching price for {pair_str} on {price_source_exchange}: {e}", exchange_id)
                     
                     self.test_balances[exchange_id][base_currency] = {
                         "free": float(asset_quantity),
@@ -217,31 +224,39 @@ class ArbitrageBot:
         if self.is_test_mode:
             return self.test_balances.get(exchange_id, {}).get(currency, {}).get("free", 0.0)
         else:
-            # In live mode, fetch from exchange_manager which should hold live balances
             bal = exchange_manager.get_balance(exchange_id, currency)
             return bal.free if bal else 0.0
 
     async def _update_test_balance(self, exchange_id: str, currency: str, amount_change: float):
-        """ Amount change is positive for credit, negative for debit from 'free' """
         if not self.is_test_mode: return
         
         if exchange_id not in self.test_balances or currency not in self.test_balances[exchange_id]:
             logger.warning(f"Attempted to update non-existent test balance: {exchange_id}, {currency}")
-            # Initialize if missing, though ideally it should exist
             if exchange_id not in self.test_balances: self.test_balances[exchange_id] = {}
             if currency not in self.test_balances[exchange_id]: 
                 self.test_balances[exchange_id][currency] = {"free": 0.0, "used": 0.0, "total": 0.0}
 
         current_balance = self.test_balances[exchange_id][currency]
         current_balance["free"] += amount_change
-        current_balance["total"] += amount_change # Assuming 'used' doesn't change here, or is handled separately
+        current_balance["total"] += amount_change 
         
         if current_balance["free"] < 0:
             logger.error(f"Test balance for {currency} on {exchange_id} went negative: {current_balance['free']}. Clamping to 0.")
-            # This indicates a flaw in trade simulation logic or insufficient funds check
+            await self._add_alert(AlertType.TRADING_ERROR, f"Test balance for {currency} on {exchange_id} went negative. Check logic.", exchange_id)
             current_balance["free"] = 0.0 
-            # Adjust total accordingly if free is clamped. This is a simplistic recovery.
-            current_balance["total"] = current_balance["used"] # Total = Used if Free is 0
+            current_balance["total"] = current_balance["used"] 
+
+    async def _add_alert(self, alert_type: AlertType, message: str, entity_name: Optional[str] = None, severity: str = "info"):
+        alert = AlertMessage(
+            type=alert_type.value,
+            message=message,
+            timestamp=datetime.utcnow().isoformat(), # Ensure ISO format for AlertMessage
+            severity=severity,
+            entity_name=entity_name
+        )
+        self.alerts.insert(0, alert)
+        self.alerts = self.alerts[:settings.MAX_ALERTS_STORED]
+        logger.info(f"ALERT ({severity.upper()}): [{alert_type.value}] {message} (Entity: {entity_name or 'N/A'})")
 
     async def _main_loop(self):
         logger.info(f"Main loop started. Bot running: {self.running}, Mode: {self.current_mode}")
@@ -258,166 +273,124 @@ class ArbitrageBot:
                 if len(connected_exchanges) < 2:
                     if loop_iterations % 10 == 1: 
                         logger.warning(f"Insufficient exchanges connected ({len(connected_exchanges)}). Need at least 2. Skipping scan.")
-                        # Consider broadcasting an alert via api.py's connection_manager
-                    await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS * 2) # Longer sleep if not enough exchanges
+                        await self._add_alert(AlertType.SYSTEM_WARNING, "Insufficient exchanges connected. Need at least 2.", "global", "warning")
+                    await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS * 2) 
                     continue
                 
-                # Failsafe checks and reactivations (simplified)
-                # await self._check_and_reactivate_failsafes() 
-
-                for pair in settings.USER_DEFINED_PAIRS:
-                    if not self.running: break 
-                    await self._scan_arbitrage_opportunities(pair, connected_exchanges)
+                # Placeholder for actual arbitrage scanning logic
+                # for pair in settings.USER_DEFINED_PAIRS:
+                #     if not self.running: break 
+                #     await self._scan_arbitrage_opportunities(pair, connected_exchanges)
                 
                 if not self.running: break
+                if self.is_test_mode and loop_iterations % settings.TEST_MODE_TRADE_INTERVAL_ITERATIONS == 0:
+                    await self._simulate_test_trade(connected_exchanges)
+
                 await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
 
             except asyncio.CancelledError:
                 logger.info("Main loop task cancelled.")
-                break # Exit loop on cancellation
+                break 
             except Exception as e:
                 error_msg = f"Critical Error in arbitrage main loop (iter {loop_iterations}): {str(e)}"
                 logger.critical(error_msg, exc_info=True)
-                # Consider broadcasting an alert
-                await asyncio.sleep(10) # Cooldown after critical error
-            finally:
-                end_time_iteration = time.perf_counter()
-                if loop_iterations % 300 == 0: # Log duration less frequently
-                     logger.info(f"Main loop iteration {loop_iterations} took {end_time_iteration - start_time_iteration:.4f} seconds.")
-
-        logger.info(f"Main loop exited. Bot running: {self.running}, Mode: {self.current_mode}")
-        # Final status update handled by stop() method
-
-    async def _scan_arbitrage_opportunities(self, pair: str, exchanges: List[str]):
-        # Placeholder for actual arbitrage scanning logic
-        # This would involve fetching order books, calculating potential profits, etc.
-        # For now, let's simulate finding an opportunity occasionally in test mode
-        if self.is_test_mode and len(exchanges) >=2 and loop_iterations % 15 == 0: # Simulate an opportunity
-            try:
-                buy_exchange = exchanges[0]
-                sell_exchange = exchanges[1]
-                base_curr, quote_curr = pair.split("/")
-
-                # Simulate some prices
-                buy_price = await exchange_manager.fetch_ticker(buy_exchange, pair).get("ask", 10000) * 0.999 # Simulate buying slightly below market ask
-                sell_price = await exchange_manager.fetch_ticker(sell_exchange, pair).get("bid", 10000) * 1.001 # Simulate selling slightly above market bid
-                
-                if not buy_price or not sell_price or buy_price <=0 or sell_price <=0:
-                    return
-
-                profit_percentage = ((sell_price - buy_price) / buy_price) * 100 - (2 * self.buffer_percentage * 100) # Simplified fee/buffer
-
-                if profit_percentage > settings.MIN_PROFIT_PERCENTAGE_THRESHOLD:
-                    timestamp = datetime.utcnow()
-                    opportunity_id = str(uuid.uuid4())
-                    
-                    # Simulate available balance and trade amount
-                    available_usdt_buy_ex = await self._get_balance(buy_exchange, quote_curr)
-                    sim_trade_amount_quote = min(available_usdt_buy_ex, self.max_trade_amount_quote, asset_capital_usd_per_pair) # Use asset_capital_usd_per_pair as a cap for test trades
-                    sim_trade_amount_base = sim_trade_amount_quote / buy_price
-
-                    if sim_trade_amount_base < settings.MIN_TRADE_AMOUNT_BASE:
-                        return # Too small to trade
-
-                    opp = ArbitrageOpportunity(
-                        id=opportunity_id,
-                        timestamp=timestamp,
-                        pair=pair,
-                        profit_percentage=profit_percentage,
-                        buy_exchange=buy_exchange,
-                        sell_exchange=sell_exchange,
-                        buy_price=buy_price,
-                        sell_price=sell_price,
-                        potential_trade_volume_quote=sim_trade_amount_quote
-                    )
-                    self.opportunities.insert(0, opp)
-                    self.opportunities = self.opportunities[:50]
-                    logger.info(f"TEST MODE: Simulated opportunity found: {opp.pair} on {opp.buy_exchange} -> {opp.sell_exchange}, Profit: {opp.profit_percentage:.4f}%")
-                    # await self._broadcast_to_websockets({"type": "new_opportunity", "data": opp.model_dump()})
-                    await self._execute_trade(opp, sim_trade_amount_base, sim_trade_amount_quote)
-            except Exception as e:
-                logger.error(f"Error in test mode opportunity simulation: {e}", exc_info=True)
-        pass # Actual live mode scanning would be complex
-
-    async def _execute_trade(self, opportunity: ArbitrageOpportunity, amount_base: float, amount_quote: float):
-        # Placeholder for actual trade execution (live or test)
-        trade_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow()
-        profit_usd = (opportunity.sell_price - opportunity.buy_price) * amount_base - (2 * self.buffer_percentage * opportunity.buy_price * amount_base)
+                await self._add_alert(AlertType.CRITICAL_ERROR, error_msg, "global", "critical")
+                await asyncio.sleep(5) # Avoid rapid crash loop
         
-        buy_trade_details = Trade(
-            exchange=opportunity.buy_exchange,
-            pair=opportunity.pair,
-            type=OrderType.MARKET,
-            side=OrderSide.BUY,
-            price=opportunity.buy_price,
-            amount_base=amount_base,
-            amount_quote=amount_quote,
-            timestamp=timestamp,
-            status=OrderStatus.CLOSED, # Simulate immediate fill for test
-            fee_amount=self.buffer_percentage * amount_quote, # Simplified fee
-            fee_currency=opportunity.pair.split("/")[1]
-        )
-        sell_trade_details = Trade(
-            exchange=opportunity.sell_exchange,
-            pair=opportunity.pair,
-            type=OrderType.MARKET,
-            side=OrderSide.SELL,
-            price=opportunity.sell_price,
-            amount_base=amount_base,
-            amount_quote=opportunity.sell_price * amount_base,
-            timestamp=timestamp,
-            status=OrderStatus.CLOSED, # Simulate immediate fill for test
-            fee_amount=self.buffer_percentage * (opportunity.sell_price * amount_base),
-            fee_currency=opportunity.pair.split("/")[1]
-        )
+        logger.info("Main loop ended.")
 
-        arbitrage_trade = ArbitrageTrade(
+    async def _simulate_test_trade(self, exchanges: List[str]):
+        if len(exchanges) < 2 or not settings.USER_DEFINED_PAIRS:
+            return
+
+        # Pick a random pair and exchanges for simulation
+        pair_to_trade = settings.USER_DEFINED_PAIRS[0] # Simplistic: always use the first pair
+        buy_exchange_id = exchanges[0]
+        sell_exchange_id = exchanges[1]
+        base_currency, quote_currency = pair_to_trade.split("/")
+
+        # Simulate some prices
+        buy_price = 50000.0 + (time.time() % 100) # Dynamic price for simulation
+        sell_price = buy_price * 1.001 # Simulate a 0.1% profit opportunity
+
+        # Simulate a trade amount (e.g., 0.001 of base currency)
+        trade_amount_base = 0.001
+        buy_cost_quote = trade_amount_base * buy_price
+        sell_proceeds_quote = trade_amount_base * sell_price
+
+        # Check if balances are sufficient (simplified)
+        if await self._get_balance(buy_exchange_id, quote_currency) < buy_cost_quote:
+            logger.warning(f"Test Trade Sim: Insufficient {quote_currency} on {buy_exchange_id} to buy {trade_amount_base} {base_currency}.")
+            return
+        if await self._get_balance(sell_exchange_id, base_currency) < trade_amount_base:
+            logger.warning(f"Test Trade Sim: Insufficient {base_currency} on {sell_exchange_id} to sell.")
+            return
+
+        # Simulate trade execution and update test balances
+        await self._update_test_balance(buy_exchange_id, quote_currency, -buy_cost_quote)
+        await self._update_test_balance(buy_exchange_id, base_currency, trade_amount_base)
+        await self._update_test_balance(sell_exchange_id, base_currency, -trade_amount_base)
+        await self._update_test_balance(sell_exchange_id, quote_currency, sell_proceeds_quote)
+
+        # Record the simulated arbitrage trade
+        trade_id = str(uuid.uuid4())
+        buy_trade_details = {
+            "id": f"buy-{trade_id[:8]}", "exchange": buy_exchange_id, "symbol": pair_to_trade, 
+            "side": "buy", "amount": trade_amount_base, "price": buy_price, 
+            "cost": buy_cost_quote, "fee_amount": buy_cost_quote * 0.001, "fee_currency": quote_currency, 
+            "timestamp": datetime.utcnow(), "status": "filled"
+        }
+        sell_trade_details = {
+            "id": f"sell-{trade_id[:8]}", "exchange": sell_exchange_id, "symbol": pair_to_trade, 
+            "side": "sell", "amount": trade_amount_base, "price": sell_price, 
+            "cost": sell_proceeds_quote, "fee_amount": sell_proceeds_quote * 0.001, "fee_currency": quote_currency, 
+            "timestamp": datetime.utcnow(), "status": "filled"
+        }
+        
+        profit = (sell_proceeds_quote - sell_trade_details['fee_amount']) - (buy_cost_quote + buy_trade_details['fee_amount'])
+        profit_percentage = (profit / buy_cost_quote) * 100 if buy_cost_quote > 0 else 0
+
+        arbitrage_trade_entry = ArbitrageTrade(
             id=trade_id,
-            opportunity_id=opportunity.id,
-            timestamp=timestamp,
-            pair=opportunity.pair,
-            profit_percentage=opportunity.profit_percentage,
-            profit_quote=profit_usd,
             buy_trade=buy_trade_details,
             sell_trade=sell_trade_details,
-            is_test_trade=self.is_test_mode,
-            status="completed" # Simplified
+            symbol=pair_to_trade,
+            profit_quote=profit,
+            profit_percentage=profit_percentage,
+            is_test_trade=True,
+            status="completed"
         )
-        self.trades.insert(0, arbitrage_trade)
-        self.trades = self.trades[:100]
+        self.trades.insert(0, arbitrage_trade_entry)
+        self.trades = self.trades[:100] # Keep last 100 trades
+        logger.info(f"Test Trade Sim: Executed for {pair_to_trade}. Buy {buy_exchange_id} @ {buy_price}, Sell {sell_exchange_id} @ {sell_price}. Profit: ${profit:.2f} ({profit_percentage:.4f}%)")
+        await self._add_alert(AlertType.TRADE_EXECUTED, f"Simulated test trade for {pair_to_trade} executed. Profit: ${profit:.2f}", "global")
 
-        if self.is_test_mode:
-            # Update test balances
-            base_curr, quote_curr = opportunity.pair.split("/")
-            await self._update_test_balance(opportunity.buy_exchange, quote_curr, -amount_quote) # Debit USDT
-            await self._update_test_balance(opportunity.buy_exchange, base_curr, amount_base)    # Credit Base
-            await self._update_test_balance(opportunity.sell_exchange, base_curr, -amount_base)   # Debit Base
-            await self._update_test_balance(opportunity.sell_exchange, quote_curr, sell_trade_details.amount_quote) # Credit USDT
-            logger.info(f"TEST MODE: Simulated trade executed: {arbitrage_trade.id}, Profit: ${profit_usd:.2f}")
-        else:
-            # Live mode: update running totals
-            self.live_total_trades += 1
-            self.live_total_profit += profit_usd
-            logger.info(f"LIVE MODE: Trade executed: {arbitrage_trade.id}, Profit: ${profit_usd:.2f}")
-        
-        # await self._broadcast_new_trade(arbitrage_trade)
-        # Consider broadcasting balance updates too
-        pass
-
-    async def reactivate_failsafe(self, type: str, entity_name: Optional[str] = None) -> Tuple[bool, str]:
-        # Simplified failsafe reactivation logic
-        logger.info(f"Attempting to reactivate failsafe: type={type}, entity={entity_name}")
-        # ... (actual logic would modify self.failsafe_status)
-        return True, f"Failsafe {type} for {entity_name or 'global'} reactivation attempted."
+    async def reactivate_failsafe_entity(self, entity_type: str, entity_name: Optional[str] = None) -> Tuple[bool, str]:
+        logger.info(f"Attempting to reactivate failsafe: type={entity_type}, entity={entity_name}")
+        if entity_type == "global":
+            self._failsafe_status_internal.global_trading_halt = False
+            self._failsafe_status_internal.global_halt_reason = None
+            self._failsafe_status_internal.global_halt_timestamp = None
+            msg = "Global trading halt reactivated."
+            logger.info(msg)
+            await self._add_alert(AlertType.INFO, msg, "global")
+            return True, msg
+        elif entity_name:
+            if entity_type == "pair" and entity_name in self._failsafe_status_internal.disabled_pairs:
+                del self._failsafe_status_internal.disabled_pairs[entity_name]
+                msg = f"Pair {entity_name} reactivated."
+                logger.info(msg)
+                await self._add_alert(AlertType.INFO, msg, entity_name)
+                return True, msg
+            elif entity_type == "exchange" and entity_name in self._failsafe_status_internal.disabled_exchanges:
+                del self._failsafe_status_internal.disabled_exchanges[entity_name]
+                msg = f"Exchange {entity_name} reactivated."
+                logger.info(msg)
+                await self._add_alert(AlertType.INFO, msg, entity_name)
+                return True, msg
+        msg = f"Failed to reactivate: Invalid type or entity not found/disabled. Type: {entity_type}, Entity: {entity_name}"
+        logger.warning(msg)
+        return False, msg
 
 arbitrage_bot = ArbitrageBot()
-
-# Helper for global access if needed, though direct import is fine for FastAPI
-async def get_arbitrage_bot_instance() -> ArbitrageBot:
-    return arbitrage_bot
-
-# Add a global variable for loop_iterations to be used in _scan_arbitrage_opportunities
-loop_iterations = 0
-asset_capital_usd_per_pair = 0 # This is a placeholder, should be set from test_settings
 

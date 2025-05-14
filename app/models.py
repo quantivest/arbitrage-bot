@@ -46,7 +46,6 @@ class ArbitrageOpportunity(BaseModel):
     symbol: str = Field(..., description="Trading pair symbol")
     buy_price: float = Field(..., description="Price to buy at")
     sell_price: float = Field(..., description="Price to sell at")
-    # spread_percentage: float = Field(..., description="Gross spread percentage before fees and slippage")
     potential_profit_percentage: float = Field(..., description="Estimated profit percentage after considering fees and buffer")
     max_tradeable_amount_base: float = Field(..., description="Maximum amount of base currency tradeable for this opportunity")
     max_tradeable_amount_quote: float = Field(..., description="Maximum amount of quote currency tradeable for this opportunity")
@@ -84,7 +83,7 @@ class IndividualTrade(BaseModel):
 class ArbitrageTrade(BaseModel):
     """Represents a completed arbitrage cycle, consisting of a buy and a sell trade."""
     id: str = Field(..., description="Unique identifier for the arbitrage trade cycle")
-    opportunity_id: str = Field(..., description="ID of the ArbitrageOpportunity that led to this trade")
+    opportunity_id: Optional[str] = Field(default=None, description="ID of the ArbitrageOpportunity that led to this trade") 
     buy_trade: IndividualTrade = Field(..., description="Details of the buy leg of the arbitrage")
     sell_trade: IndividualTrade = Field(..., description="Details of the sell leg of the arbitrage")
     symbol: str = Field(..., description="Trading pair symbol")
@@ -92,31 +91,24 @@ class ArbitrageTrade(BaseModel):
     profit_percentage: float = Field(..., description="Net profit percentage relative to the initial investment (buy cost)")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when the arbitrage trade cycle was completed/recorded")
     is_test_trade: bool = Field(default=False, description="Flag indicating if this was a simulated test trade")
+    status: str = Field(default="completed", description="Status of the arbitrage trade (e.g. pending, completed, failed)") 
 
 # --- Bot Configuration & Status Models ---
 class TestModeSettings(BaseModel):
     """Settings for running the bot in test/simulation mode."""
-    # enabled: bool = Field(default=False, description="Whether test mode is active") # Implicitly handled by bot state
-    usdt_cap: float = Field(default=1000.0, description="Simulated USDT capital per exchange")
-    asset_cap: float = Field(default=10.0, description="Simulated capital for each base asset (e.g., BTC, ETH) per exchange, per pair")
-    buffer_percentage: float = Field(default=0.0001, ge=0, le=0.05, description="Buffer to account for slippage/fees (e.g., 0.0001 for 0.01%)")
-    exchanges: List[str] = Field(default_factory=list, description="List of exchanges to use in test mode")
-    # Removed capital_per_pair as asset_cap is now per pair per exchange
+    usdt_capital_per_exchange: float = Field(default=1000.0, description="Simulated USDT capital per exchange")
+    asset_capital_usd_per_pair: float = Field(default=100.0, description="Simulated USD capital for each base asset (e.g., BTC, ETH) per exchange, per pair")
+    buffer_percentage: Optional[float] = Field(default=0.01, ge=0, le=5.0, description="Buffer to account for slippage/fees (e.g., 0.01 for 0.01%)") 
+    exchanges: Optional[List[str]] = Field(default_factory=list, description="List of exchanges to use in test mode, if empty use all connected")
 
 class AlertMessage(BaseModel):
     """Model for system alerts and notifications."""
-    id: str = Field(..., description="Unique ID for the alert")
-    type: Literal[
-        "connection_error", "api_error", "trade_execution_error", "partial_fill_warning", 
-        "failsafe_triggered", "balance_low", "config_error", "info", "websocket_status"
-    ] = Field(..., description="Type of the alert")
+    id: Optional[str] = Field(default=None, description="Unique ID for the alert, can be generated if not provided")
+    type: str = Field(..., description="Type of the alert, e.g. system_error, trade_executed")
     severity: Literal["info", "warning", "error", "critical"] = Field(..., description="Severity of the alert")
     message: str = Field(..., description="Detailed alert message")
-    entity_type: Optional[Literal["exchange", "pair", "global", "system"]] = Field(default=None, description="Type of entity related to the alert")
     entity_name: Optional[str] = Field(default=None, description="Name of the entity (e.g., exchange name, pair symbol)")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of the alert")
-    can_acknowledge: bool = Field(default=False, description="Whether this alert can be acknowledged by the user")
-    is_acknowledged: bool = Field(default=False, description="Whether this alert has been acknowledged")
 
 class FailsafeEntityStatus(BaseModel):
     """Status of a specific failsafe entity (pair or exchange)."""
@@ -125,39 +117,55 @@ class FailsafeEntityStatus(BaseModel):
     cooldown_until: Optional[datetime] = Field(default=None, description="Timestamp until cooldown period ends")
     failure_count: int = Field(default=0, description="Recent failure count for this entity")
 
+# This is the FailsafeStatus model as used in arbitrage.py
+class FailsafeStatus(BaseModel):
+    """Comprehensive status of all failsafe mechanisms, matching arbitrage.py initialization."""
+    disabled_pairs: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict)
+    disabled_exchanges: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict)
+    global_trading_halt: bool = Field(default=False)
+    global_halt_reason: Optional[str] = Field(default=None)
+    global_halt_timestamp: Optional[datetime] = Field(default=None)
+    historical_high_balance_usdt: float = Field(default=0.0) # Field from arbitrage.py
+    pair_failure_counts: Dict[str, int] = Field(default_factory=dict) # Field from arbitrage.py
+    exchange_failure_counts: Dict[str, int] = Field(default_factory=dict) # Field from arbitrage.py
+
 class FailsafeStatusData(BaseModel):
-    """Comprehensive status of all failsafe mechanisms."""
+    """Data structure for FailsafeStatus when used in other contexts like BotStatusPayload."""
     global_trading_halt: bool = Field(default=False, description="Whether global trading is halted")
     global_halt_reason: Optional[str] = Field(default=None, description="Reason for global halt")
     global_halt_timestamp: Optional[datetime] = Field(default=None, description="Timestamp of global halt")
     disabled_exchanges: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict, description="Status of disabled exchanges")
     disabled_pairs: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict, description="Status of disabled trading pairs")
-    # historical_high_balance_usdt: float = Field(default=0.0, description="Historical high total USDT equivalent balance") # Potentially complex to maintain accurately
 
 class TestSimulationStatusPayload(BaseModel):
     """Payload for test simulation status updates via WebSocket."""
-    status: Literal["IDLE", "STARTING", "RUNNING", "STOPPING", "STOPPED", "ERROR"] = Field(default="IDLE")
+    status: Literal["IDLE", "STARTING", "RUNNING", "STOPPING", "STOPPED", "ERROR", "UNKNOWN"] = Field(default="IDLE")
     message: Optional[str] = Field(default=None)
     active_since: Optional[datetime] = Field(default=None)
     total_test_trades: int = Field(default=0)
     total_test_profit: float = Field(default=0.0)
-    # Potentially add current settings if they can change mid-simulation (unlikely for now)
 
 class BotStatusPayload(BaseModel):
     """Comprehensive status of the bot, typically sent via WebSocket or API."""
     is_bot_running: bool = Field(..., description="Overall status of whether the bot's main loop is active (live or test)")
     current_mode: Literal["idle", "live", "test_simulating"] = Field(default="idle", description="Current operational mode of the bot")
-    # test_simulation_status: TestSimulationStatusPayload = Field(default_factory=TestSimulationStatusPayload, description="Specific status of test simulation if active") # Replaced by current_mode and specific test data
     connected_exchanges: List[str] = Field(default_factory=list, description="List of currently connected and verified exchanges")
     websocket_connected: bool = Field(default=False, description="Frontend WebSocket connection status to backend")
     last_status_update_ts: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of this status payload generation")
     active_alerts: List[AlertMessage] = Field(default_factory=list, description="List of current active, unacknowledged alerts")
-    failsafe_status: FailsafeStatusData = Field(default_factory=FailsafeStatusData, description="Current status of failsafe mechanisms")
-    # Optional: High-level performance summary for live mode if running
+    failsafe_status: FailsafeStatusData = Field(default_factory=FailsafeStatusData, description="Current status of failsafe mechanisms, uses FailsafeStatusData for broader compatibility")
     live_total_trades: Optional[int] = Field(default=None)
     live_total_profit: Optional[float] = Field(default=None)
 
-# --- API Request/Response Models (Examples, can be more specific per endpoint) ---
+class FullStatusUpdatePayload(BaseModel):
+    """Structure for the full payload received via WebSocket initial_status or bot_status_update."""
+    bot_status: BotStatusPayload
+    test_simulation_status: TestSimulationStatusPayload
+    recent_trades: List[ArbitrageTrade]
+    recent_opportunities: List[ArbitrageOpportunity]
+    exchange_balances: List[ExchangeBalance]
+
+# --- API Request/Response Models ---
 class StartBotRequest(BaseModel):
     """Request model for starting the bot."""
     mode: Literal["live", "test"] = Field(..., description="Mode to start the bot in")
@@ -171,56 +179,47 @@ class ActionResponse(BaseModel):
 
 class ReactivateRequest(BaseModel):
     type: Literal["pair", "exchange", "global"]
-    entity_name: Optional[str] = None # Required if type is pair or exchange
+    entity_name: Optional[str] = None 
 
 class OrderStatus(str, PyEnum):
-    """Order status enum."""
-    open = "open"
-    closed = "closed"
-    canceled = "canceled"
-    expired = "expired"
-    rejected = "rejected"
-    partially_filled = "partially_filled"
+    OPEN = "open"
+    CLOSED = "closed"
+    CANCELED = "canceled"
+    EXPIRED = "expired"
+    REJECTED = "rejected"
+    PARTIALLY_FILLED = "partially_filled"
 
 class OrderType(str, PyEnum):
-    """Order type enum."""
-    market = "market"
-    limit = "limit"
+    MARKET = "market"
+    LIMIT = "limit"
 
 class OrderSide(str, PyEnum):
-    """Order side enum."""
-    buy = "buy"
-    sell = "sell"
+    BUY = "buy"
+    SELL = "sell"
 
-# --- Alert & Status Models ---
 class AlertType(str, PyEnum):
-    """Alert type enum."""
-    connection_error = "connection_error"
-    api_error = "api_error"
-    trade_execution_error = "trade_execution_error"
-    partial_fill_warning = "partial_fill_warning"
-    failsafe_triggered = "failsafe_triggered"
-    balance_low = "balance_low"
-    config_error = "config_error"
-    info = "info"
-    websocket_status = "websocket_status"
-
-class FailsafeStatus(BaseModel):
-    """Comprehensive status of all failsafe mechanisms."""
-    global_trading_halt: bool = Field(default=False, description="Whether global trading is halted")
-    global_halt_reason: Optional[str] = Field(default=None, description="Reason for global halt")
-    global_halt_timestamp: Optional[datetime] = Field(default=None, description="Timestamp of global halt")
-    disabled_exchanges: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict, description="Status of disabled exchanges")
-    disabled_pairs: Dict[str, FailsafeEntityStatus] = Field(default_factory=dict, description="Status of disabled trading pairs")
+    CONNECTION_ERROR = "connection_error"
+    API_ERROR = "api_error"
+    TRADE_EXECUTION_ERROR = "trade_execution_error"
+    PARTIAL_FILL_WARNING = "partial_fill_warning"
+    FAILSAFE_TRIGGERED = "failsafe_triggered"
+    BALANCE_LOW = "balance_low"
+    CONFIG_ERROR = "config_error"
+    INFO = "info"
+    WEBSOCKET_STATUS = "websocket_status"
+    CRITICAL_ERROR = "critical_error"
+    SYSTEM_WARNING = "system_warning"
+    DATA_FETCH_ERROR = "data_fetch_error"
+    TRADING_ERROR = "trading_error"
+    TRADE_EXECUTED = "trade_executed"
+    SYSTEM_ERROR = "system_error" 
 
 class ExchangeBalanceUpdate(BaseModel):
-    """Model for exchange balance updates sent via WebSocket."""
     type: Literal["exchange_balance_update"] = "exchange_balance_update"
     exchange_balances: List[ExchangeBalance] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class BotStatusUpdate(BaseModel):
-    """Model for bot status updates sent via WebSocket."""
     type: Literal["bot_status_update"] = "bot_status_update"
     is_bot_running: bool
     current_mode: Literal["idle", "live", "test_simulating"]
@@ -229,7 +228,6 @@ class BotStatusUpdate(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class FailsafeStatusUpdate(BaseModel):
-    """Model for failsafe status updates sent via WebSocket."""
     type: Literal["failsafe_status_update"] = "failsafe_status_update"
     global_trading_halt: bool
     global_halt_reason: Optional[str] = None
@@ -239,9 +237,9 @@ class FailsafeStatusUpdate(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class ExchangeConnectionStatus(BaseModel):
-    """Model for exchange connection status updates sent via WebSocket."""
     type: Literal["exchange_connection_status"] = "exchange_connection_status"
     exchange: str
     connected: bool
     error: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
