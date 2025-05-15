@@ -71,6 +71,8 @@ class ExchangeManager:
             if exchange_id_lower == "gemini":
                 exchange_config["nonce"] = lambda: self._get_gemini_nonce(current_api_key_for_ccxt)
                 logger.info(f"Gemini exchange: Nonce function configured.")
+                exchange_config["options"] = {"adjustForTimeDifference": True}
+                logger.info(f"Gemini exchange: adjustForTimeDifference enabled.")
 
             if additional_params:
                 logger.info(f"Applying additional parameters for {exchange_id}: {additional_params}")
@@ -97,7 +99,7 @@ class ExchangeManager:
             
             logger.info(f"Attempting to fetch balances to verify API key for {exchange_id}...")
             try:
-                await exchange.fetch_balance(params={"limit": 1})
+                await exchange.fetch_balance() 
                 logger.info(f"API key for {exchange_id} appears valid after balance fetch attempt.")
             except ccxt.AuthenticationError as e_auth_verify:
                 logger.error(f"API key verification failed for {exchange_id} during balance fetch: {e_auth_verify}", exc_info=True)
@@ -124,8 +126,8 @@ class ExchangeManager:
             logger.error(f"Exchange error connecting to {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
             if "Invalid API Key" in str(e) or "InvalidSignature" in str(e):
                 return False, f"Authentication failed for {exchange_id}. Check API key and secret. Details: {e}"
-            if "Out-of-sequence nonce" in str(e) and exchange_id_lower == "gemini":
-                return False, f"Gemini nonce error for {exchange_id}. Please try reconnecting. Details: {e}"
+            if exchange_id_lower == "gemini" and ("nonce" in str(e).lower() or "InvalidNonce" in str(type(e))):
+                return False, f"Gemini nonce error for {exchange_id}. Details: {e}"
             return False, f"Exchange error for {exchange_id}: {e}"
         except Exception as e:
             logger.error(f"Unexpected error connecting to {exchange_id}: {type(e).__name__} - {e}", exc_info=True)
@@ -196,7 +198,7 @@ class ExchangeManager:
                 return None
 
             for currency, amounts in raw_balances.items():
-                if currency in ["info", "free", "used", "total"]:
+                if currency.lower() in ["info", "free", "used", "total", "timestamp", "datetime"]:
                     continue
                 
                 if isinstance(amounts, dict):
@@ -306,6 +308,35 @@ class ExchangeManager:
         except Exception as e:
             logger.error(f"Error creating order on {exchange_id} for {symbol}: {e}", exc_info=True)
             return None
+
+    async def get_all_order_books_for_pairs(self, pairs: List[str], limit: int = 20) -> Dict[str, Dict[str, OrderBook]]:
+        """Fetch order books for all connected exchanges for the given pairs.
+        
+        Args:
+            pairs: List of trading pairs (e.g., ["BTC/USDT", "ETH/USDT"])
+            limit: Depth limit for order book
+            
+        Returns:
+            Dictionary of dictionaries mapping {exchange_id -> {symbol -> OrderBook}}
+        """
+        logger.info(f"Fetching order books for {len(pairs)} pairs across {len(self.exchanges)} exchanges")
+        all_order_books: Dict[str, Dict[str, OrderBook]] = {}
+        
+        for exchange_id in self.exchanges:
+            all_order_books[exchange_id] = {}
+            for symbol in pairs:
+                try:
+                    order_book = await self.fetch_order_book(exchange_id, symbol, limit)
+                    if order_book:
+                        all_order_books[exchange_id][symbol] = order_book
+                except Exception as e:
+                    logger.error(f"Error fetching order book for {symbol} on {exchange_id}: {e}", exc_info=True)
+        
+        total_fetched = sum(len(books) for books in all_order_books.values())
+        total_possible = len(self.exchanges) * len(pairs)
+        logger.info(f"Fetched {total_fetched}/{total_possible} order books successfully")
+        
+        return all_order_books
 
 exchange_manager = ExchangeManager()
 
