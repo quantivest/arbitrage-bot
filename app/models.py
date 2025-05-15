@@ -92,6 +92,17 @@ class ArbitrageTrade(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when the arbitrage trade cycle was completed/recorded")
     is_test_trade: bool = Field(default=False, description="Flag indicating if this was a simulated test trade")
     status: str = Field(default="completed", description="Status of the arbitrage trade (e.g. pending, completed, failed)") 
+    type: str = Field(default="arbitrage", description="Type of trade for frontend display")
+    
+    @property
+    def buy_exchange(self) -> str:
+        """Get the buy exchange name for frontend display."""
+        return self.buy_trade.exchange
+
+    @property
+    def sell_exchange(self) -> str:
+        """Get the sell exchange name for frontend display."""
+        return self.sell_trade.exchange
 
 # --- Bot Configuration & Status Models ---
 class TestModeSettings(BaseModel):
