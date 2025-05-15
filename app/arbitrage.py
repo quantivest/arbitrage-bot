@@ -46,6 +46,11 @@ class ArbitrageBot:
         self.live_total_trades = 0
         self.live_total_profit = 0.0
         logger.info(f"ArbitrageBot initialized. Default buffer: {self.buffer_percentage*100:.4f}%, Min trade: ${self.min_trade_amount_quote}, Max trade leg: ${self.max_trade_amount_quote}")
+        
+    def _set_test_error_message(self, error):
+        """Safely set test simulation error message, ensuring it's always a string."""
+        self.test_simulation_error_message = str(error) if error is not None else None
+        logger.error(f"Test simulation error: {self.test_simulation_error_message}")
 
     @property
     def is_running(self) -> bool:
@@ -90,7 +95,7 @@ class ArbitrageBot:
              message_str = "Test simulation (dry run) stopped."
         elif self.test_simulation_error_message:
             status_str = "ERROR"
-            message_str = self.test_simulation_error_message
+            message_str = str(self.test_simulation_error_message) if self.test_simulation_error_message is not None else "Unknown error occurred"
         
         return TestSimulationStatusPayload(
             status=status_str,
@@ -98,12 +103,12 @@ class ArbitrageBot:
             active_since=self.test_simulation_active_since.isoformat() if self.test_simulation_active_since and status_str == "RUNNING" else None,
             total_test_trades=len([t for t in self.trades if t.is_test_trade]),
             total_test_profit=sum(t.profit_quote for t in self.trades if t.is_test_trade),
-            error_message=self.test_simulation_error_message if status_str == "ERROR" else None
+            error_message=str(self.test_simulation_error_message) if status_str == "ERROR" and self.test_simulation_error_message is not None else None
         )
 
     async def start(self, mode: str, test_settings_data: Optional[Dict] = None) -> Tuple[bool, str]:
         logger.info(f"Attempting to start bot. Current state: running={self.running}, mode={self.current_mode}. Requested mode: {mode}")
-        self.test_simulation_error_message = None 
+        self.test_simulation_error_message = None  # Reset any previous error messages
         
         if self.running:
             logger.info("Bot is already running. Stopping first to ensure clean start.")
@@ -122,7 +127,7 @@ class ArbitrageBot:
             except Exception as e:
                 error_detail = f"Invalid test settings provided: {e}. Data: {test_settings_data}"
                 logger.error(error_detail, exc_info=True)
-                self.test_simulation_error_message = error_detail
+                self._set_test_error_message(error_detail)
                 self.current_mode = "test_idle"
                 return False, error_detail
             
@@ -131,7 +136,7 @@ class ArbitrageBot:
             init_success, init_msg = await self._initialize_test_balances(self.current_test_settings)
             if not init_success:
                 logger.error(f"Failed to initialize test balances for Dry Run: {init_msg}")
-                self.test_simulation_error_message = f"Failed to initialize test balances for Dry Run: {init_msg}"
+                self._set_test_error_message(f"Failed to initialize test balances for Dry Run: {init_msg}")
                 self.current_mode = "test_idle"
                 return False, self.test_simulation_error_message
             
