@@ -49,7 +49,7 @@ class ArbitrageBot:
         
     def _set_test_error_message(self, error):
         """Safely set test simulation error message, ensuring it's always a string."""
-        self.test_simulation_error_message = str(error) if error is not None else None
+        self.test_simulation_error_message = str(error) if error is not None else "Unknown error"
         logger.error(f"Test simulation error: {self.test_simulation_error_message}")
 
     @property
@@ -95,7 +95,7 @@ class ArbitrageBot:
              message_str = "Test simulation (dry run) stopped."
         elif self.test_simulation_error_message:
             status_str = "ERROR"
-            message_str = str(self.test_simulation_error_message) if self.test_simulation_error_message is not None else "Unknown error occurred"
+            message_str = self.test_simulation_error_message  # Already ensured to be a string by _set_test_error_message
         
         return TestSimulationStatusPayload(
             status=status_str,
@@ -103,7 +103,7 @@ class ArbitrageBot:
             active_since=self.test_simulation_active_since.isoformat() if self.test_simulation_active_since and status_str == "RUNNING" else None,
             total_test_trades=len([t for t in self.trades if t.is_test_trade]),
             total_test_profit=sum(t.profit_quote for t in self.trades if t.is_test_trade),
-            error_message=str(self.test_simulation_error_message) if status_str == "ERROR" and self.test_simulation_error_message is not None else None
+            error_message=self.test_simulation_error_message if status_str == "ERROR" else None
         )
 
     async def start(self, mode: str, test_settings_data: Optional[Dict] = None) -> Tuple[bool, str]:
@@ -138,7 +138,7 @@ class ArbitrageBot:
                 logger.error(f"Failed to initialize test balances for Dry Run: {init_msg}")
                 self._set_test_error_message(f"Failed to initialize test balances for Dry Run: {init_msg}")
                 self.current_mode = "test_idle"
-                return False, self.test_simulation_error_message
+                return False, str(self.test_simulation_error_message)
             
             if self.current_test_settings.buffer_percentage is not None:
                 self.buffer_percentage = self.current_test_settings.buffer_percentage / 100.0 
