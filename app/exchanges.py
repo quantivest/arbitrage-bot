@@ -337,6 +337,64 @@ class ExchangeManager:
         logger.info(f"Fetched {total_fetched}/{total_possible} order books successfully")
         
         return all_order_books
+        
+    def get_exchange_fee_rate(self, exchange_id: str) -> Optional[float]:
+        """Get the fee rate for an exchange using the 3-tier priority system:
+        1. Real-time fetched taker fee from exchange markets
+        2. Exchange-specific configured fee from settings
+        3. Global default fee rate
+        
+        Args:
+            exchange_id: The exchange ID to get the fee rate for
+            
+        Returns:
+            The fee rate (e.g., 0.001 for 0.1%) or None if not available
+        """
+        try:
+            if exchange_id in self.exchanges:
+                exchange = self.exchanges[exchange_id]
+                
+                common_markets = ["BTC/USDT", "ETH/USDT", "BTC/USD"]
+                for market_symbol in common_markets:
+                    if market_symbol in exchange.markets:
+                        market = exchange.markets[market_symbol]
+                        if 'taker' in market:
+                            logger.debug(f"Using real-time taker fee for {exchange_id}: {market['taker']}")
+                            return market['taker']
+                
+                if hasattr(exchange, 'fees') and 'trading' in exchange.fees and 'taker' in exchange.fees['trading']:
+                    logger.debug(f"Using exchange default taker fee for {exchange_id}: {exchange.fees['trading']['taker']}")
+                    return exchange.fees['trading']['taker']
+            
+            if hasattr(settings, 'EXCHANGE_FEE_RATES') and exchange_id.lower() in settings.EXCHANGE_FEE_RATES:
+                logger.debug(f"Using configured fee rate for {exchange_id}: {settings.EXCHANGE_FEE_RATES[exchange_id.lower()]}")
+                return settings.EXCHANGE_FEE_RATES[exchange_id.lower()]
+            
+            logger.debug(f"Using global default fee rate for {exchange_id}: {settings.EXCHANGE_DEFAULT_FEE_RATE}")
+            return settings.EXCHANGE_DEFAULT_FEE_RATE
+            
+        except Exception as e:
+            logger.error(f"Error getting fee rate for {exchange_id}: {e}", exc_info=True)
+            return settings.EXCHANGE_DEFAULT_FEE_RATE
+            
+    def get_exchange_slippage_percentage(self, exchange_id: str) -> float:
+        """Get the slippage percentage for an exchange.
+        
+        Args:
+            exchange_id: The exchange ID to get the slippage percentage for
+            
+        Returns:
+            The slippage percentage (e.g., 0.0005 for 0.05%)
+        """
+        try:
+            if hasattr(settings, 'EXCHANGE_SLIPPAGE_PERCENTAGES') and exchange_id.lower() in settings.EXCHANGE_SLIPPAGE_PERCENTAGES:
+                return settings.EXCHANGE_SLIPPAGE_PERCENTAGES[exchange_id.lower()]
+            
+            return settings.DEFAULT_SLIPPAGE_PERCENTAGE
+            
+        except Exception as e:
+            logger.error(f"Error getting slippage percentage for {exchange_id}: {e}", exc_info=True)
+            return settings.DEFAULT_SLIPPAGE_PERCENTAGE
 
 exchange_manager = ExchangeManager()
 

@@ -39,7 +39,23 @@ class Settings(BaseSettings):
     SCAN_INTERVAL_SECONDS: float = 1.0  # Interval for scanning arbitrage opportunities
     ORDER_BOOK_STALENESS_THRESHOLD_SECONDS: int = 5 # Max age of order book to be considered valid
     ORDER_BOOK_DEPTH_FOR_LIQUIDITY: int = 5 # Number of order book levels to sum for liquidity check
+    
+    EXCHANGE_DEFAULT_FEE_RATE: float = 0.001 # Default 0.1% fee rate as fallback when exchange doesn't report fees
+    EXCHANGE_FEE_RATES: Dict[str, float] = {
+        "binanceus": 0.001,  # 0.1% taker fee
+        "kraken": 0.0026,    # 0.26% taker fee
+        "gemini": 0.0035,    # 0.35% taker fee
+        "bitstamp": 0.005,   # 0.5% taker fee
+    }
+    
     DEFAULT_SLIPPAGE_PERCENTAGE: float = 0.0005 # Default 0.05% slippage if not calculable
+    EXCHANGE_SLIPPAGE_PERCENTAGES: Dict[str, float] = {
+        "binanceus": 0.0004, # 0.04% slippage
+        "kraken": 0.0005,    # 0.05% slippage
+        "gemini": 0.0006,    # 0.06% slippage
+        "bitstamp": 0.0007,  # 0.07% slippage
+    }
+    
     MIN_PROFIT_PERCENTAGE_THRESHOLD: float = 0.0002 # Minimum 0.02% profit after all costs to execute trade
     MIN_TRADE_AMOUNT_BASE: float = 0.00001 # Minimum trade amount in base currency (e.g., 0.00001 BTC)
     MIN_TRADE_AMOUNT_QUOTE: float = 10.0 # Minimum trade amount in quote currency (e.g., 10 USDT)
@@ -50,6 +66,7 @@ class Settings(BaseSettings):
     FAILSAFE_EXCHANGE_MAX_FAILURES: int = 10 # Max total failures for an exchange before disabling it
     FAILSAFE_COOLDOWN_MINUTES_PAIR: int = 5 # Cooldown period for disabled pairs
     FAILSAFE_COOLDOWN_MINUTES_EXCHANGE: int = 10 # Cooldown period for disabled exchanges
+    FAILSAFE_GLOBAL_HALT_RECOVERY_CHECK_INTERVAL_SECONDS: int = 60 # Check for global halt recovery every minute
 
     # WebSocket settings
     WEBSOCKET_BROADCAST_INTERVAL_SECONDS: float = 2.0 # Interval for broadcasting status updates via WebSocket
