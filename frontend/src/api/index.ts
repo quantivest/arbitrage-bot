@@ -184,7 +184,7 @@ export const botApi = {
   startBot: (isTestMode: boolean, settings?: TestModeSettings) =>
     apiRequest("/bot/start", {
       method: "POST",
-      body: JSON.stringify({ test_mode: isTestMode, test_settings: settings }),
+      body: JSON.stringify({ mode: isTestMode ? "test" : "live", test_settings: settings }),
     }),
   stopBot: () =>
     apiRequest("/bot/stop", {
@@ -213,5 +213,16 @@ export const botApi = {
     apiRequest("/failsafe/reactivate/global", {
       method: "POST",
     }),
+  reactivateFailsafe: (request: { type: "pair" | "exchange" | "global", entity_name?: string }) => {
+    if (request.type === "pair" && request.entity_name) {
+      return apiRequest(`/failsafe/reactivate/pair/${request.entity_name}`, { method: "POST" });
+    } else if (request.type === "exchange" && request.entity_name) {
+      return apiRequest(`/failsafe/reactivate/exchange/${request.entity_name}`, { method: "POST" });
+    } else if (request.type === "global") {
+      return apiRequest("/failsafe/reactivate/global", { method: "POST" });
+    } else {
+      throw new Error("Invalid reactivate request");
+    }
+  },
 };
 

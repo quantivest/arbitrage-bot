@@ -12,10 +12,10 @@ interface ConnectTabProps {
   botStatus: BotStatusPayload; // Changed from BotStatus to BotStatusPayload for clarity and consistency
   onBotAction: (action: "start_live" | "stop") => Promise<void>;
   supportedExchanges: string[];
-  balances: ExchangeBalance[]; 
-  alerts: AlertMessage[]; // Assuming alerts are passed down if needed
-  failsafeStatus: FailsafeStatusData | null; // Assuming failsafeStatus is passed down
-  onReactivateFailsafe: (type: "pair" | "exchange" | "global", entity?: string) => Promise<void>; // Added from App.tsx
+  // balances: ExchangeBalance[]; // This property is not needed as we can use botStatus.exchange_balances
+  alerts?: AlertMessage[]; // Make alerts optional
+  failsafeStatus?: FailsafeStatusData | null; // Make failsafeStatus optional
+  onReactivateFailsafe?: (type: "pair" | "exchange" | "global", entity?: string) => Promise<void>; // Make onReactivateFailsafe optional
 }
 
 export default function ConnectTab({
@@ -93,7 +93,7 @@ export default function ConnectTab({
   const handleStartStop = async () => {
     try {
       setActionError(null);
-      if (botStatus.is_running) {
+      if (botStatus.is_bot_running) {
         await onBotAction("stop");
       } else {
         if (!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) { // FIX: Use connected_exchanges
@@ -213,15 +213,15 @@ export default function ConnectTab({
               </CardDescription>
             </CardHeader>
             <CardContent>
-                <div className={`p-4 rounded-md mb-4 ${botStatus.is_running && botStatus.current_mode === 'live' ? "bg-green-700/30 border-green-500" : "bg-red-700/30 border-red-500"} border`}>
+                <div className={`p-4 rounded-md mb-4 ${botStatus.is_bot_running && botStatus.current_mode === 'live' ? "bg-green-700/30 border-green-500" : "bg-red-700/30 border-red-500"} border`}>
                     <div className="flex items-center">
-                        {botStatus.is_running && botStatus.current_mode === 'live' ? <CheckCircle className="h-5 w-5 text-green-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
-                        <span className={`text-lg font-medium ${botStatus.is_running && botStatus.current_mode === 'live' ? "text-green-300" : "text-red-300"}`}>
-                            Bot Status: {botStatus.is_running && botStatus.current_mode === 'live' ? "Running (Live Mode)" : "Stopped"}
+                        {botStatus.is_bot_running && botStatus.current_mode === 'live' ? <CheckCircle className="h-5 w-5 text-green-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
+                        <span className={`text-lg font-medium ${botStatus.is_bot_running && botStatus.current_mode === 'live' ? "text-green-300" : "text-red-300"}`}>
+                            Bot Status: {botStatus.is_bot_running && botStatus.current_mode === 'live' ? "Running (Live Mode)" : "Stopped"}
                         </span>
                     </div>
                 </div>
-              {(!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) && !(botStatus.is_running && botStatus.current_mode === 'live') && (
+              {(!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) && !(botStatus.is_bot_running && botStatus.current_mode === 'live') && (
                 <Alert variant="warning" className="mb-4">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Minimum Exchanges Required</AlertTitle>
@@ -234,11 +234,11 @@ export default function ConnectTab({
             <CardFooter>
               <Button 
                 onClick={handleStartStop}
-                className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${botStatus.is_running && botStatus.current_mode === 'live' ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
-                disabled={(!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) && !(botStatus.is_running && botStatus.current_mode === 'live')}
+                className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${botStatus.is_bot_running && botStatus.current_mode === 'live' ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
+                disabled={(!botStatus.connected_exchanges || botStatus.connected_exchanges.length < 2) && !(botStatus.is_bot_running && botStatus.current_mode === 'live')}
               >
-                {botStatus.is_running && botStatus.current_mode === 'live' ? <Square size={20}/> : <Play size={20}/>}
-                <span>{botStatus.is_running && botStatus.current_mode === 'live' ? "Stop Live Bot" : "Start Live Bot"}</span>
+                {botStatus.is_bot_running && botStatus.current_mode === 'live' ? <Square size={20}/> : <Play size={20}/>}
+                <span>{botStatus.is_bot_running && botStatus.current_mode === 'live' ? "Stop Live Bot" : "Start Live Bot"}</span>
               </Button>
             </CardFooter>
           </Card>

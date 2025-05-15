@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "./ui/button";
-import { AlertCircle, RefreshCw, ShieldAlert, ShieldCheck, TrendingUp, TrendingDown, ListChecks, Info, ExternalLink, AlertTriangle } from "lucide-react"; // MODIFICATION: Added AlertTriangle
+import { AlertCircle, RefreshCw, CheckCircle, ChevronUp, ChevronDown, Square } from "lucide-react"; // Fixed icon imports
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { ScrollArea } from "./ui/scroll-area";
 import { Badge } from "./ui/badge";
@@ -27,6 +27,7 @@ interface DashboardTabProps {
   alerts: AlertMessage[];
   failsafeStatus: FailsafeStatusData | null;
   onReactivateFailsafe: (type: "pair" | "exchange" | "global", entity_name?: string) => Promise<void>;
+  currentMode?: "idle" | "live" | "test_simulating" | "test_idle";
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -71,7 +72,7 @@ export default function DashboardTab({
   const summaryStats = useMemo(() => {
     const totalTrades = tradesToDisplay.length;
     const totalProfit = tradesToDisplay.reduce((sum, trade) => sum + trade.profit_quote, 0);
-    const totalVolumeQuote = tradesToDisplay.reduce((sum, trade) => sum + (trade.buy_trade.price * trade.buy_trade.amount), 0);
+    const totalVolumeQuote = tradesToDisplay.reduce((sum, trade) => sum + (trade.buy_trade.price * trade.buy_trade.amount_base), 0);
     const avgProfitPerTrade = totalTrades > 0 ? totalProfit / totalTrades : 0;
     const avgProfitPercentage = totalTrades > 0
         ? tradesToDisplay.reduce((sum, trade) => sum + trade.profit_percentage, 0) / totalTrades
@@ -100,10 +101,10 @@ export default function DashboardTab({
       case "error":
         return <AlertCircle className="h-4 w-4 mr-2 text-red-500 flex-shrink-0" />;
       case "warning":
-        return <AlertTriangle className="h-4 w-4 mr-2 text-yellow-400 flex-shrink-0" />; // MODIFICATION: Changed icon for warning
+        return <AlertCircle className="h-4 w-4 mr-2 text-yellow-400 flex-shrink-0" />; // Use AlertCircle for warning too
       case "info":
       default:
-        return <Info className="h-4 w-4 mr-2 text-blue-400 flex-shrink-0" />;
+        return <CheckCircle className="h-4 w-4 mr-2 text-blue-400 flex-shrink-0" />;
     }
   };
 
@@ -123,7 +124,7 @@ export default function DashboardTab({
         <h2 className="text-3xl font-bold tracking-tight text-white">
           {isTestMode ? "Test Mode Stats" : "Live Trading Stats"}
         </h2>
-        <Badge variant={isRunning && (isTestMode || !failsafeStatus?.global_trading_halt) ? "success" : "destructive"} className="mt-2 sm:mt-0 text-sm px-3 py-1">
+        <Badge variant={isRunning && (isTestMode || !failsafeStatus?.global_trading_halt) ? "default" : "destructive"} className="mt-2 sm:mt-0 text-sm px-3 py-1">
           {isRunning && (isTestMode || !failsafeStatus?.global_trading_halt) ? 
             (isTestMode ? "Test Simulation Running" : "Live Bot Active") :
             (isTestMode ? "Test Simulation Stopped" : "Live Bot Stopped")
@@ -136,7 +137,7 @@ export default function DashboardTab({
         <Card className="bg-gray-800/50 border-gray-700 shadow-md hover:shadow-lg transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-300">Total Trades</CardTitle>
-            <ListChecks className="h-4 w-4 text-gray-500" />
+            <CheckCircle className="h-4 w-4 text-gray-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">{summaryStats.totalTrades}</div>
@@ -146,7 +147,7 @@ export default function DashboardTab({
         <Card className="bg-gray-800/50 border-gray-700 shadow-md hover:shadow-lg transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-300">Total Profit (USDT)</CardTitle>
-            {summaryStats.totalProfit >= 0 ? <TrendingUp className="h-4 w-4 text-green-500" /> : <TrendingDown className="h-4 w-4 text-red-500" />}
+            {summaryStats.totalProfit >= 0 ? <ChevronUp className="h-4 w-4 text-green-500" /> : <ChevronDown className="h-4 w-4 text-red-500" />}
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${summaryStats.totalProfit >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -158,7 +159,7 @@ export default function DashboardTab({
         <Card className="bg-gray-800/50 border-gray-700 shadow-md hover:shadow-lg transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-300">Avg. Profit %</CardTitle>
-            <Info className="h-4 w-4 text-gray-500" />
+            <CheckCircle className="h-4 w-4 text-gray-500" />
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${summaryStats.avgProfitPercentage >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -276,7 +277,7 @@ export default function DashboardTab({
                       <TableCell className="text-right">
                         {bal.error ? 
                           <Badge variant="destructive">Error</Badge> :
-                          <Badge variant="success">OK</Badge>
+                          <Badge variant="default">OK</Badge>
                         }
                       </TableCell>
                     </TableRow>
@@ -336,14 +337,14 @@ export default function DashboardTab({
                 <div className="space-y-3">
                   <div className={`p-3 rounded-md ${failsafeStatus.global_trading_halt ? "bg-red-800/30 border-red-600" : "bg-green-800/30 border-green-600"}`}>
                     <div className="flex items-center mb-1">
-                      {failsafeStatus.global_trading_halt ? <ShieldAlert className="h-5 w-5 mr-2 text-red-400" /> : <ShieldCheck className="h-5 w-5 mr-2 text-green-400" />}
+                      {failsafeStatus.global_trading_halt ? <AlertCircle className="h-5 w-5 mr-2 text-red-400" /> : <CheckCircle className="h-5 w-5 mr-2 text-green-400" />}
                       <span className="font-medium text-gray-200">Global Trading: {failsafeStatus.global_trading_halt ? "HALTED" : "Active"}</span>
                     </div>
                     {failsafeStatus.global_trading_halt && (
                       <>
                         <p className="text-xs text-gray-300">Reason: {failsafeStatus.global_halt_reason || "N/A"}</p>
                         <p className="text-xs text-gray-400">Halted since: {failsafeStatus.global_halt_timestamp ? formatDistanceToNow(new Date(failsafeStatus.global_halt_timestamp), { addSuffix: true }) : "N/A"}</p>
-                        <Button size="sm" variant="destructive_outline" className="mt-2" onClick={() => onReactivateFailsafe("global")}>Reactivate Global Trading</Button>
+                        <Button size="sm" variant="destructive" className="mt-2" onClick={() => onReactivateFailsafe("global")}>Reactivate Global Trading</Button>
                       </>
                     )}
                   </div>

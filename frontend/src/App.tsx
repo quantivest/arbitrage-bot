@@ -270,7 +270,7 @@ function App() {
               alerts={alerts}
               failsafeStatus={failsafeStatus}
               onReactivateFailsafe={handleFailsafeReactivation}
-              botMode={currentBotStatusForTabs.current_mode}
+              currentMode={currentBotStatusForTabs.current_mode}
             />
           )}
           
