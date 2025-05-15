@@ -5,7 +5,7 @@ import { Slider } from "./ui/slider";
 import { Label } from "./ui/label";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { ArbitrageTrade, TestModeSettings, AlertMessage, FailsafeStatusData, TestSimulationStatusPayload } from "../types";
-import { AlertCircle, Play, StopCircle, CheckCircle, Zap, Info, Settings, BarChartHorizontalBig } from "lucide-react"; // Removed PercentSquare as it's not used
+import { AlertCircle, Play, Square, CheckCircle } from "lucide-react"; // Using available icons
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { ScrollArea } from "./ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
@@ -173,7 +173,7 @@ export default function TestModeTab({
         <CardContent className="pt-6">
             <div className={`p-4 rounded-md flex items-center justify-between ${isSimulationRunning ? "bg-green-700/30 border-green-500" : (testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE" || !testSimulationStatus?.status) ? "bg-gray-700/30 border-gray-500" : "bg-red-700/30 border-red-500"} border`}>
                 <div className="flex items-center">
-                    {isSimulationRunning ? <Zap className="h-5 w-5 text-green-400 mr-2 animate-pulse" /> : (testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE" || !testSimulationStatus?.status) ? <CheckCircle className="h-5 w-5 text-gray-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
+                    {isSimulationRunning ? <Play className="h-5 w-5 text-green-400 mr-2 animate-pulse" /> : (testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE" || !testSimulationStatus?.status) ? <CheckCircle className="h-5 w-5 text-gray-400 mr-2" /> : <AlertCircle className="h-5 w-5 text-red-400 mr-2" />}
                     <span className={`text-lg font-medium ${isSimulationRunning ? "text-green-300" : (testSimulationStatus?.status === "STOPPED" || testSimulationStatus?.status === "IDLE" || !testSimulationStatus?.status) ? "text-gray-300" : "text-red-300"}`}>
                         Test Simulation: {testSimulationStatus?.status ? testSimulationStatus.status.replace(/_/g, " ") : "IDLE"}
                     </span>
@@ -189,7 +189,7 @@ export default function TestModeTab({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 bg-gray-800/50 border-gray-700">
           <CardHeader>
-            <CardTitle className="text-white flex items-center"><Settings size={20} className="mr-2 text-orange-400"/>Test Simulation Settings</CardTitle>
+            <CardTitle className="text-white flex items-center"><Square size={20} className="mr-2 text-orange-400"/>Test Simulation Settings</CardTitle>
             <CardDescription className="text-gray-400">
               Configure parameters for the test simulation. The bot will use the 10 specified pairs: {TARGET_TRADING_PAIRS.map(p=>p.split("/")[0]).join(", ")}.
             </CardDescription>
@@ -261,7 +261,7 @@ export default function TestModeTab({
               disabled={(selectedExchanges.length < 2 && !isSimulationRunning) || isSimulationStopping}
               className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${isSimulationRunning ? (isSimulationStopping ? "bg-yellow-600 hover:bg-yellow-700 cursor-not-allowed" : "bg-red-600 hover:bg-red-700") : "bg-green-600 hover:bg-green-700"}`}
             >
-              {isSimulationRunning ? (isSimulationStopping ? <StopCircle size={20} className="animate-spin"/> : <StopCircle size={20}/>) : <Play size={20}/>}
+              {isSimulationRunning ? (isSimulationStopping ? <Square size={20} className="animate-spin"/> : <Square size={20}/>) : <Play size={20}/>}
               <span>{isSimulationRunning ? (isSimulationStopping ? "Stopping..." : "Stop Simulation") : "Start Simulation"}</span>
             </Button>
           </CardFooter>
@@ -269,7 +269,7 @@ export default function TestModeTab({
 
         <Card className="lg:col-span-2 bg-gray-800/50 border-gray-700">
           <CardHeader>
-            <CardTitle className="text-white flex items-center"><BarChartHorizontalBig size={20} className="mr-2 text-orange-400"/>Simulation Results</CardTitle>
+            <CardTitle className="text-white flex items-center"><CheckCircle size={20} className="mr-2 text-orange-400"/>Simulation Results</CardTitle>
             <CardDescription className="text-gray-400">
               Performance metrics and trade history from the current or last test simulation.
             </CardDescription>
@@ -309,7 +309,7 @@ export default function TestModeTab({
               </ResponsiveContainer>
             </div>
             
-            <h3 className="text-lg font-semibold text-white mb-2 flex items-center"><Info size={18} className="mr-2 text-orange-400"/>Recent Test Trades (Max 50)</h3>
+            <h3 className="text-lg font-semibold text-white mb-2 flex items-center"><CheckCircle size={18} className="mr-2 text-orange-400"/>Recent Test Trades (Max 50)</h3>
             <ScrollArea className="h-[200px] border border-gray-700 rounded-md">
               <Table>
                 <TableHeader>
@@ -329,9 +329,9 @@ export default function TestModeTab({
                         <TableCell className="py-2 text-gray-300">{trade.timestamp ? formatDistanceToNow(new Date(trade.timestamp), { addSuffix: true }) : "N/A"}</TableCell>
                         <TableCell className="py-2 text-gray-300">{trade.pair ?? "N/A"}</TableCell>
                         <TableCell className="py-2 text-gray-300">
-                          <Badge variant={trade.type === "buy-sell-buy" ? "default" : "secondary"} className="whitespace-nowrap">{trade.type ?? "N/A"}</Badge>
+                          <Badge variant="secondary" className="whitespace-nowrap">{"Arbitrage"}</Badge>
                         </TableCell>
-                        <TableCell className="py-2 text-gray-300">{`${trade.buy_exchange ?? "N/A"} → ${trade.sell_exchange ?? "N/A"}`}</TableCell>
+                        <TableCell className="py-2 text-gray-300">{`${trade.buy_trade?.exchange ?? "N/A"} → ${trade.sell_trade?.exchange ?? "N/A"}`}</TableCell>
                         <TableCell className={`py-2 text-right font-medium ${(trade.profit_quote ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
                           ${(trade.profit_quote ?? 0).toFixed(2)}
                         </TableCell>
@@ -362,13 +362,12 @@ export default function TestModeTab({
                 </div>
             )}
 
-            {failsafeStatus && failsafeStatus.active && (
+            {failsafeStatus && failsafeStatus.global_trading_halt && (
                 <Alert variant="warning" className="mt-6 bg-yellow-700/20 border-yellow-500">
-                    <Zap className="h-5 w-5 text-yellow-400" />
+                    <AlertCircle className="h-5 w-5 text-yellow-400" />
                     <AlertTitle className="text-yellow-300">Failsafe Active!</AlertTitle>
                     <AlertDescription className="text-yellow-400 text-xs">
-                        {failsafeStatus.reason || "Trading is temporarily paused due to failsafe conditions."}
-                        {failsafeStatus.details && <span className="block mt-1">Details: {typeof failsafeStatus.details === 'string' ? failsafeStatus.details : JSON.stringify(failsafeStatus.details)}</span>}
+                        {failsafeStatus.global_halt_reason || "Trading is temporarily paused due to failsafe conditions."}
                     </AlertDescription>
                 </Alert>
             )}

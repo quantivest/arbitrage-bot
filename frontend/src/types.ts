@@ -51,6 +51,7 @@ export interface ArbitrageTrade {
   opportunity_id?: string; 
   timestamp: string; // ISO 8601 datetime string
   pair: string; 
+  symbol: string; // Add this property to match usage in App.tsx
   buy_trade: TradeLeg;
   sell_trade: TradeLeg;
   profit_percentage: number;
@@ -94,12 +95,13 @@ export interface FailsafeStatusData {
 // Represents the overall status of the bot from the backend (part of WebSocket payload)
 export interface BotStatusPayload {
   is_bot_running: boolean;
-  current_mode: "idle" | "live" | "test_simulating";
+  current_mode: "idle" | "live" | "test_simulating" | "test_idle";
   connected_exchanges: string[];
   websocket_connected: boolean; 
   last_status_update_ts: string; // ISO 8601 datetime string
   active_alerts: AlertMessage[];
   failsafe_status: FailsafeStatusData;
+  exchange_balances?: ExchangeBalance[]; // Add this optional property
   live_total_trades?: number;
   live_total_profit?: number;
 }
