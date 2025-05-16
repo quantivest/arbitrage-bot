@@ -116,11 +116,12 @@ export interface TestModeSettings {
 
 // Specific payload for test simulation status updates (part of WebSocket payload)
 export interface TestSimulationStatusPayload {
-  status: "IDLE" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "ERROR" | "UNKNOWN";
+  status: "IDLE" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "ERROR" | "UNKNOWN" | "INITIALIZING";
   message?: string;
   active_since?: string | null; // ISO timestamp
   total_test_trades: number;
   total_test_profit: number;
+  error_message?: string | null;
 }
 
 // Structure for the full payload received via WebSocket initial_status or bot_status_update

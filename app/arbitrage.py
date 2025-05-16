@@ -21,7 +21,7 @@ class ArbitrageBot:
     
     def __init__(self):
         self.running = False
-        self.current_mode: str = "idle"  # Can be "idle", "live", "test_simulating", "test_idle"
+        self.current_mode: str = "idle"  # Can be "idle", "live", "test_simulating", "test_idle", "test_initializing"
         self._main_loop_task: Optional[asyncio.Task] = None
         self.opportunities: List[ArbitrageOpportunity] = []
         self.trades: List[ArbitrageTrade] = []
@@ -43,6 +43,8 @@ class ArbitrageBot:
         self.current_test_settings: Optional[TestModeSettings] = None
         self.test_simulation_active_since: Optional[datetime] = None
         self.test_simulation_error_message: Optional[str] = None
+        self.test_initializing = False  # Flag to track if test initialization is in progress
+        self.test_initialization_task = None  # Task reference for the async initialization
         self.live_total_trades = 0
         self.live_total_profit = 0.0
         logger.info(f"ArbitrageBot initialized. Default buffer: {self.buffer_percentage*100:.4f}%, Min trade: ${self.min_trade_amount_quote}, Max trade leg: ${self.max_trade_amount_quote}")
@@ -85,13 +87,21 @@ class ArbitrageBot:
         )
 
     async def get_test_simulation_status(self) -> TestSimulationStatusPayload:
+        """Get the current status of the test simulation (dry run)."""
         status_str = "IDLE"
-        message_str = "Test simulation (dry run) is not active."
-        if self.is_actively_simulating_test_mode:
-            status_str = "RUNNING"
-            message_str = "Test simulation (dry run) is active, scanning for real opportunities with virtual balances."
-        elif self.current_mode == "test_idle" and not self.running: # Stopped after a test run
-             status_str = "IDLE"
+        message_str = "Test simulation (dry run) not active."
+        
+        if self.test_initializing:
+            status_str = "INITIALIZING"
+            message_str = "Initializing test balances and configuration..."
+        elif self.is_actively_simulating_test_mode:
+            status_str = "RUNNING"  
+            message_str = f"Test simulation (dry run) active since {self.test_simulation_active_since.isoformat()}."
+        elif self.current_mode == "test_stopping":
+             status_str = "STOPPING"
+             message_str = "Test simulation (dry run) stopping..."
+        elif self.current_mode == "test_stopped" or (self.current_mode == "test_idle" and not self.running):
+             status_str = "STOPPED"
              message_str = "Test simulation (dry run) stopped."
         elif self.test_simulation_error_message:
             status_str = "ERROR"
@@ -131,21 +141,31 @@ class ArbitrageBot:
                 self.current_mode = "test_idle"
                 return False, error_detail
             
-            self.current_mode = "test_simulating"
-            logger.info(f"Initializing test balances for Dry Run with settings: {self.current_test_settings}")
-            init_success, init_msg = await self._initialize_test_balances(self.current_test_settings)
-            if not init_success:
-                logger.error(f"Failed to initialize test balances for Dry Run: {init_msg}")
-                self._set_test_error_message(f"Failed to initialize test balances for Dry Run: {init_msg}")
-                self.current_mode = "test_idle"
-                return False, str(self.test_simulation_error_message)
+            if self.test_initialization_task and not self.test_initialization_task.done():
+                logger.warning("Cancelling previous test initialization task")
+                self.test_initialization_task.cancel()
+                try:
+                    await self.test_initialization_task
+                except asyncio.CancelledError:
+                    logger.info("Previous test initialization task cancelled successfully")
+                except Exception as e:
+                    logger.error(f"Error cancelling previous initialization task: {e}")
+            
+            self.current_mode = "test_initializing"
             
             if self.current_test_settings.buffer_percentage is not None:
                 self.buffer_percentage = self.current_test_settings.buffer_percentage / 100.0 
             else:
                 self.buffer_percentage = settings.BUFFER_PERCENTAGE
             logger.info(f"Test Mode (Dry Run): Buffer percentage set to {self.buffer_percentage*100:.4f}%")
-            self.test_simulation_active_since = datetime.now(timezone.utc)
+            
+            # Start asynchronous initialization
+            loop = asyncio.get_event_loop()
+            self.test_initialization_task = loop.create_task(
+                self._background_initialize_test_balances(self.current_test_settings)
+            )
+            logger.info("Test balance initialization started in background")
+            return True, "Test Mode initialization started in background"
         else:
             err_msg = "Invalid mode or missing test settings for test mode."
             logger.error(err_msg)
@@ -201,6 +221,36 @@ class ArbitrageBot:
         logger.info("Arbitrage bot stopped.")
         return True, "Bot stopped successfully."
     
+    async def _background_initialize_test_balances(self, test_settings: TestModeSettings):
+        """Asynchronous background task for initializing test balances."""
+        try:
+            logger.info("Starting background test balance initialization")
+            self.test_initializing = True
+            await self._broadcast_bot_status()  # Broadcast initializing status
+            
+            # Perform the actual initialization
+            success, message = await self._initialize_test_balances(test_settings)
+            
+            if not success:
+                logger.error(f"Background test balance initialization failed: {message}")
+                self._set_test_error_message(f"Failed to initialize test balances for Dry Run: {message}")
+                self.current_mode = "test_idle"
+            else:
+                logger.info("Background test balance initialization completed successfully")
+                if self.current_mode == "test_initializing":
+                    self.current_mode = "test_simulating"
+                    self.test_simulation_active_since = datetime.now(timezone.utc)
+                    
+            self.test_initializing = False
+            await self._broadcast_bot_status()  # Broadcast updated status
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in background test balance initialization: {e}", exc_info=True)
+            self._set_test_error_message(f"Unexpected error during test initialization: {str(e)}")
+            self.current_mode = "test_idle"
+            self.test_initializing = False
+            await self._broadcast_bot_status()  # Broadcast error status
+            
     async def _initialize_test_balances(self, test_settings: TestModeSettings) -> Tuple[bool, str]:
         self.test_balances = {}
         exchanges_to_init = test_settings.exchanges or list(exchange_manager.exchanges.keys())
