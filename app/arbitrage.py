@@ -305,10 +305,46 @@ class ArbitrageBot:
             logger.info(f"Using first connected exchange {price_source_exchange} as price source for test balance init.")
         
         if not price_source_exchange and asset_capital_usd_per_pair > 0:
-            msg = "Cannot initialize asset balances in USD without at least one connected exchange to fetch prices."
-            logger.error(msg)
-            await self._add_alert(AlertType.SYSTEM_ERROR, msg, "global", "error")
-            return False, msg
+            logger.warning("No connected exchanges available for price fetching. Using default prices for test mode.")
+            # Use default mock prices for test mode when no exchanges are connected
+            for exchange_id in exchanges_to_init:
+                self.test_balances[exchange_id] = {
+                    "USDT": {"free": float(usdt_capital_per_exchange), "used": 0.0, "total": float(usdt_capital_per_exchange)}
+                }
+                default_prices = {
+                    "BTC/USDT": 50000.0,
+                    "ETH/USDT": 3000.0,
+                    "XRP/USDT": 0.5,
+                    "LTC/USDT": 150.0,
+                    "BCH/USDT": 500.0,
+                    "ADA/USDT": 1.2,
+                    "DOT/USDT": 20.0,
+                    "LINK/USDT": 15.0,
+                    "XLM/USDT": 0.3,
+                    "DOGE/USDT": 0.1
+                }
+                
+                for pair_str in settings.USER_DEFINED_PAIRS:
+                    base_currency, quote_currency = pair_str.split("/")
+                    if quote_currency != "USDT": 
+                        logger.warning(f"Skipping non-USDT pair {pair_str} for USD-based asset initialization.")
+                        continue
+                        
+                    if base_currency not in self.test_balances[exchange_id]:
+                        asset_quantity = 0.0
+                        if asset_capital_usd_per_pair > 0:
+                            price = default_prices.get(pair_str, 100.0)  # Default to $100 if pair not in default_prices
+                            asset_quantity = asset_capital_usd_per_pair / price
+                            logger.info(f"For {pair_str} on {exchange_id}, ${asset_capital_usd_per_pair} at default price {price} = {asset_quantity:.8f} {base_currency}")
+                            
+                        self.test_balances[exchange_id][base_currency] = {
+                            "free": float(asset_quantity),
+                            "used": 0.0,
+                            "total": float(asset_quantity)
+                        }
+                
+            logger.info(f"Test balances initialized with default prices: {self.test_balances}")
+            return True, "Test balances initialized successfully with default prices."
 
         for exchange_id in exchanges_to_init:
             if exchange_id not in exchange_manager.exchanges and asset_capital_usd_per_pair > 0:
@@ -928,7 +964,7 @@ class ArbitrageBot:
                 exchange_balances_list.append(ExchangeBalanceUpdate(exchange=ex_id, balances=balances_data if balances_data else {}, error=error_msg))
 
         return BotStatusUpdate(
-            is_running=self.running,
+            is_bot_running=self.running,
             current_mode=self.current_mode,
             connected_exchanges=[ex.exchange for ex in exchange_statuses if ex.connected], # From actual status
             supported_exchanges=exchange_manager.get_supported_exchanges(),
