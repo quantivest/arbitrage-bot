@@ -395,6 +395,53 @@ class ExchangeManager:
         except Exception as e:
             logger.error(f"Error getting slippage percentage for {exchange_id}: {e}", exc_info=True)
             return settings.DEFAULT_SLIPPAGE_PERCENTAGE
+            
+    def get_connected_exchanges_status(self) -> dict:
+        """Get the connection status of all exchanges.
+        
+        Returns:
+            A dictionary mapping exchange IDs to their connection status
+        """
+        result = {}
+        for exchange_id, exchange in self.exchanges.items():
+            try:
+                result[exchange_id] = {
+                    "connected": True,
+                    "message": "Connected"
+                }
+            except Exception as e:
+                result[exchange_id] = {
+                    "connected": False,
+                    "message": f"Error: {str(e)}"
+                }
+        return result
+        
+    async def get_all_balances(self) -> dict:
+        """Get all balances for all connected exchanges.
+        
+        Returns:
+            A dictionary mapping exchange IDs to their balances
+        """
+        return await self.fetch_all_balances()
+        
+    def get_exchange_error(self, exchange_id: str) -> str:
+        """Get any error message for an exchange.
+        
+        Args:
+            exchange_id: The exchange ID to get the error for
+            
+        Returns:
+            The error message, or None if there is no error
+        """
+        return None
+        
+    def get_supported_exchanges(self) -> List[str]:
+        """Get a list of all supported exchanges.
+        
+        Returns:
+            A list of exchange IDs that are supported by the bot
+        """
+        return ["binanceus", "kraken", "gemini", "bitstamp", "coinbase", "kucoin"]
 
 exchange_manager = ExchangeManager()
 

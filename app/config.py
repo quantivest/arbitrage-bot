@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     WEBSOCKET_BROADCAST_INTERVAL_SECONDS: float = 2.0 # Interval for broadcasting status updates via WebSocket
     MAX_ALERTS_WEBSOCKET: int = 10 # Max alerts to send in initial websocket status
     MAX_ALERTS_STORED: int = 50 # Max alerts to store in memory
+    MAX_RECENT_ALERTS_TO_STORE: int = 50 # Alias for MAX_ALERTS_STORED for backward compatibility
+    MAX_RECENT_TRADES_TO_DISPLAY: int = 50 # Max trades to display in UI
     TEST_MODE_TRADE_INTERVAL_ITERATIONS: int = 10 # How many main loop iterations before a test trade is simulated
     ORDER_BOOK_DEPTH: int = 20 # How many levels of bids/asks to fetch for order books
 
