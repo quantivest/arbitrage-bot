@@ -246,7 +246,8 @@ class ArbitrageBot:
             
         except Exception as e:
             logger.error(f"Unexpected error in background test balance initialization: {e}", exc_info=True)
-            self._set_test_error_message(f"Unexpected error during test initialization: {str(e)}")
+            error_detail = f"Error during test initialization: {str(e)}. Please check for connected exchanges and valid settings."
+            self._set_test_error_message(error_detail)
             self.current_mode = "test_idle"
             self.test_initializing = False
             await self._broadcast_bot_status()  # Broadcast error status
@@ -255,7 +256,14 @@ class ArbitrageBot:
         self.test_balances = {}
         exchanges_to_init = test_settings.exchanges or list(exchange_manager.exchanges.keys())
         if not exchanges_to_init:
-            return False, "No exchanges connected or specified for test mode."
+            return False, "No exchanges connected or specified for test mode. Please connect at least two exchanges before starting Test Mode."
+        
+        connected_exchanges = list(exchange_manager.exchanges.keys())
+        if not connected_exchanges:
+            return False, "No exchanges are currently connected. Please connect at least two exchanges before starting Test Mode."
+        
+        if len(connected_exchanges) < 2:
+            return False, f"Only one exchange ({connected_exchanges[0]}) is connected. At least two exchanges are required for arbitrage opportunities."
 
         usdt_capital_per_exchange = test_settings.usdt_capital_per_exchange
         asset_capital_usd_per_pair = test_settings.asset_capital_usd_per_pair 
@@ -316,9 +324,13 @@ class ArbitrageBot:
                                     asset_quantity = asset_capital_usd_per_pair / ticker["last"]
                                     logger.info(f"For {pair_str} on {exchange_id}, ${asset_capital_usd_per_pair} at price {ticker['last']} = {asset_quantity:.8f} {base_currency}")
                                 else:
-                                    logger.warning(f"Could not fetch valid price for {pair_str} on {price_source_exchange}. Defaulting {base_currency} to 0 units for {exchange_id}.")
+                                    error_msg = f"Could not fetch valid price for {pair_str} on {price_source_exchange}. Received ticker: {ticker}"
+                                    logger.warning(error_msg)
+                                    asset_quantity = 0.0
                             except Exception as e:
-                                logger.error(f"Error fetching price for {pair_str} on {price_source_exchange} for test balance init: {e}. Defaulting {base_currency} to 0 units for {exchange_id}.")
+                                error_msg = f"Error fetching price for {pair_str} on {price_source_exchange}: {str(e)}"
+                                logger.error(error_msg, exc_info=True)
+                                asset_quantity = 0.0
                     
                     self.test_balances[exchange_id][base_currency] = {
                         "free": float(asset_quantity),

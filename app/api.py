@@ -268,8 +268,9 @@ async def start_bot_api(request: StartBotRequest):
     except HTTPException: 
         raise
     except Exception as e:
-        logger.error(f"API: Unexpected error starting bot: {e}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while starting the bot.")
+        error_detail = f"Unexpected error starting bot: {str(e)}"
+        logger.error(f"API: {error_detail}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.post("/bot/stop", response_model=ActionResponse)
 async def stop_bot_api():
