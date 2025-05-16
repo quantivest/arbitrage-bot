@@ -64,7 +64,9 @@ class ArbitrageBot:
 
     @property
     def is_actively_simulating_test_mode(self) -> bool:
-        return self.current_mode == "test_simulating" and self.running
+        result = self.current_mode == "test_simulating" and self.running
+        logger.info(f"is_actively_simulating_test_mode check: current_mode={self.current_mode}, running={self.running}, result={result}")
+        return result
 
     async def get_recent_opportunities(self, limit: int = 10) -> List[ArbitrageOpportunity]:
         return self.opportunities[:limit]
@@ -273,10 +275,14 @@ class ArbitrageBot:
             return False, "No exchanges connected or specified for test mode. Please connect at least two exchanges before starting Test Mode."
         
         connected_exchanges = list(exchange_manager.exchanges.keys())
-        if not connected_exchanges:
-            return False, "No exchanges are currently connected. Please connect at least two exchanges before starting Test Mode."
+        selected_exchanges = test_settings.exchanges
         
-        if len(connected_exchanges) < 2:
+        # For test mode, we'll allow using selected exchanges even if they're not connected
+        if selected_exchanges and len(selected_exchanges) >= 2:
+            logger.info(f"Using selected exchanges for test mode: {selected_exchanges}")
+        elif not connected_exchanges:
+            return False, "No exchanges are currently connected. Please connect at least two exchanges before starting Test Mode."
+        elif len(connected_exchanges) < 2:
             return False, f"Only one exchange ({connected_exchanges[0]}) is connected. At least two exchanges are required for arbitrage opportunities."
 
         usdt_capital_per_exchange = test_settings.usdt_capital_per_exchange
@@ -299,10 +305,46 @@ class ArbitrageBot:
             logger.info(f"Using first connected exchange {price_source_exchange} as price source for test balance init.")
         
         if not price_source_exchange and asset_capital_usd_per_pair > 0:
-            msg = "Cannot initialize asset balances in USD without at least one connected exchange to fetch prices."
-            logger.error(msg)
-            await self._add_alert(AlertType.SYSTEM_ERROR, msg, "global", "error")
-            return False, msg
+            logger.warning("No connected exchanges available for price fetching. Using default prices for test mode.")
+            # Use default mock prices for test mode when no exchanges are connected
+            for exchange_id in exchanges_to_init:
+                self.test_balances[exchange_id] = {
+                    "USDT": {"free": float(usdt_capital_per_exchange), "used": 0.0, "total": float(usdt_capital_per_exchange)}
+                }
+                default_prices = {
+                    "BTC/USDT": 50000.0,
+                    "ETH/USDT": 3000.0,
+                    "XRP/USDT": 0.5,
+                    "LTC/USDT": 150.0,
+                    "BCH/USDT": 500.0,
+                    "ADA/USDT": 1.2,
+                    "DOT/USDT": 20.0,
+                    "LINK/USDT": 15.0,
+                    "XLM/USDT": 0.3,
+                    "DOGE/USDT": 0.1
+                }
+                
+                for pair_str in settings.USER_DEFINED_PAIRS:
+                    base_currency, quote_currency = pair_str.split("/")
+                    if quote_currency != "USDT": 
+                        logger.warning(f"Skipping non-USDT pair {pair_str} for USD-based asset initialization.")
+                        continue
+                        
+                    if base_currency not in self.test_balances[exchange_id]:
+                        asset_quantity = 0.0
+                        if asset_capital_usd_per_pair > 0:
+                            price = default_prices.get(pair_str, 100.0)  # Default to $100 if pair not in default_prices
+                            asset_quantity = asset_capital_usd_per_pair / price
+                            logger.info(f"For {pair_str} on {exchange_id}, ${asset_capital_usd_per_pair} at default price {price} = {asset_quantity:.8f} {base_currency}")
+                            
+                        self.test_balances[exchange_id][base_currency] = {
+                            "free": float(asset_quantity),
+                            "used": 0.0,
+                            "total": float(asset_quantity)
+                        }
+                
+            logger.info(f"Test balances initialized with default prices: {self.test_balances}")
+            return True, "Test balances initialized successfully with default prices."
 
         for exchange_id in exchanges_to_init:
             if exchange_id not in exchange_manager.exchanges and asset_capital_usd_per_pair > 0:
@@ -358,7 +400,13 @@ class ArbitrageBot:
     async def _main_loop(self):
         logger.info(f"Main loop started for mode: {self.current_mode}")
         logger.info(f"Bot running state: {self.running}, mode: {self.current_mode}")
+        logger.info(f"Test simulation active since: {self.test_simulation_active_since}")
+        logger.info(f"Is actively simulating test mode: {self.is_actively_simulating_test_mode}")
+        
+        iteration_count = 0
         while self.running:
+            iteration_count += 1
+            logger.info(f"Main loop iteration #{iteration_count} starting for mode: {self.current_mode}")
             try:
                 if self._failsafe_status_internal.global_trading_halt:
                     logger.warning(f"Global trading halt is active. Reason: {self._failsafe_status_internal.global_halt_reason}. Sleeping for {settings.FAILSAFE_GLOBAL_HALT_RECOVERY_CHECK_INTERVAL_SECONDS}s.")
@@ -367,47 +415,79 @@ class ArbitrageBot:
                     continue
 
                 start_time = time.time()
-                logger.debug(f"Main loop iteration started at {datetime.now(timezone.utc).isoformat()} for mode {self.current_mode}")
+                logger.info(f"Main loop iteration #{iteration_count} started at {datetime.now(timezone.utc).isoformat()} for mode {self.current_mode}")
+                logger.info(f"Current running state: {self.running}, is_actively_simulating_test_mode: {self.is_actively_simulating_test_mode}")
 
                 # Fetch real order books for both live and true dry-run test mode
-                all_order_books = await exchange_manager.get_all_order_books_for_pairs(settings.USER_DEFINED_PAIRS)
+                logger.info(f"Fetching order books for mode: {self.current_mode} (iteration #{iteration_count})")
+                try:
+                    all_order_books = await exchange_manager.get_all_order_books_for_pairs(settings.USER_DEFINED_PAIRS)
+                    logger.info(f"Order books fetched successfully: {len(all_order_books)} exchanges with data (iteration #{iteration_count})")
+                    for ex, books in all_order_books.items():
+                        logger.info(f"Exchange {ex} has {len(books)} order books (iteration #{iteration_count})")
+                        if len(books) == 0:
+                            logger.warning(f"Exchange {ex} has 0 order books. This may cause issues for finding opportunities.")
+                except Exception as e:
+                    logger.error(f"Error fetching order books (iteration #{iteration_count}): {e}", exc_info=True)
+                    all_order_books = {}
                 
                 if not all_order_books:
-                    logger.warning("No order books fetched. Sleeping.")
+                    logger.warning(f"No order books fetched (iteration #{iteration_count}). Sleeping.")
                     await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
                     continue
 
-                opportunities = await self._find_opportunities(all_order_books)
-                if opportunities:
-                    logger.info(f"Found {len(opportunities)} potential opportunities.")
-                    for opp in opportunities:
-                        if self._failsafe_status_internal.global_trading_halt:
-                            logger.info("Global trading halt activated during opportunity processing. Breaking loop.")
-                            break
-                        await self._execute_arbitrage(opp)
-                else:
-                    logger.debug("No arbitrage opportunities found in this iteration.")
+                logger.info(f"Finding opportunities for mode: {self.current_mode} (iteration #{iteration_count})")
+                try:
+                    opportunities = await self._find_opportunities(all_order_books)
+                    logger.info(f"Found {len(opportunities)} potential opportunities for mode: {self.current_mode} (iteration #{iteration_count})")
+                    
+                    if opportunities:
+                        for opp in opportunities:
+                            if self._failsafe_status_internal.global_trading_halt:
+                                logger.info(f"Global trading halt activated during opportunity processing (iteration #{iteration_count}). Breaking loop.")
+                                break
+                            logger.info(f"Executing arbitrage for opportunity: {opp.pair} in mode: {self.current_mode} (iteration #{iteration_count})")
+                            await self._execute_arbitrage(opp)
+                    else:
+                        logger.info(f"No arbitrage opportunities found in this iteration for mode: {self.current_mode} (iteration #{iteration_count})")
+                except Exception as e:
+                    logger.error(f"Error finding or executing opportunities (iteration #{iteration_count}): {e}", exc_info=True)
+                    await self._add_alert(AlertType.SYSTEM_ERROR, f"Error in opportunity processing: {e}", "global", "critical")
                 
                 # Update balances periodically, especially for test mode to reflect simulated trades
+                logger.info(f"Updating balances for mode: {self.current_mode}, is_actively_simulating_test_mode: {self.is_actively_simulating_test_mode} (iteration #{iteration_count})")
                 if self.is_actively_simulating_test_mode:
+                    logger.info(f"Broadcasting bot status for test mode: {self.current_mode} (iteration #{iteration_count})")
                     await self._broadcast_bot_status() # Ensure test balances are sent
                 elif self.current_mode == "live": # For live mode, rely on exchange manager to update via WebSocket or periodic fetch
+                    logger.info(f"Live mode - balances updated by exchange_manager (iteration #{iteration_count})")
                     pass # Live balances are updated by exchange_manager
 
                 elapsed_time = time.time() - start_time
                 sleep_duration = max(0, settings.SCAN_INTERVAL_SECONDS - elapsed_time)
-                logger.debug(f"Loop iteration took {elapsed_time:.2f}s. Sleeping for {sleep_duration:.2f}s.")
+                logger.info(f"Loop iteration #{iteration_count} took {elapsed_time:.2f}s. Sleeping for {sleep_duration:.2f}s for mode: {self.current_mode}")
+                
+                if not self.running:
+                    logger.warning(f"Bot is no longer running before sleep in iteration #{iteration_count}. Exiting main loop.")
+                    break
+                    
                 await asyncio.sleep(sleep_duration)
+                
+                if not self.running:
+                    logger.warning(f"Bot is no longer running after sleep in iteration #{iteration_count}. Exiting main loop.")
+                    break
+                    
+                logger.info(f"Woke up after sleep, continuing main loop for mode: {self.current_mode}, running: {self.running} (iteration #{iteration_count})")
 
             except asyncio.CancelledError:
-                logger.info("Main loop cancelled.")
+                logger.info(f"Main loop cancelled in iteration #{iteration_count}.")
                 break
             except Exception as e:
-                logger.error(f"Error in main loop: {e}", exc_info=True)
+                logger.error(f"Error in main loop iteration #{iteration_count}: {e}", exc_info=True)
                 await self._add_alert(AlertType.SYSTEM_ERROR, f"Main loop error: {e}", "global", "critical")
                 # Implement a more robust error handling, e.g., exponential backoff or specific error recovery
                 await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS * 2) # Longer sleep on error
-        logger.info(f"Main loop ended. Bot running: {self.running}, Mode: {self.current_mode}")
+        logger.info(f"Main loop ended after {iteration_count} iterations. Bot running: {self.running}, Mode: {self.current_mode}")
 
     async def _find_opportunities(self, all_order_books: Dict[str, Dict[str, OrderBook]]) -> List[ArbitrageOpportunity]:
         opportunities = []
@@ -832,7 +912,13 @@ class ArbitrageBot:
         return exchange_id in self._failsafe_status_internal.disabled_exchanges
 
     async def _add_alert(self, type: AlertType, message: str, entity: str, level: str, pair: Optional[str] = None):
-        alert = AlertMessage(type=type, message=message, entity=entity, level=level, pair=pair, timestamp=datetime.now(timezone.utc))
+        alert = AlertMessage(
+            type=str(type.value), 
+            message=message, 
+            severity=level,  # Use level as severity
+            entity_name=entity,  # Map entity to entity_name
+            timestamp=datetime.now(timezone.utc)
+        )
         self.alerts.insert(0, alert)
         if len(self.alerts) > settings.MAX_RECENT_ALERTS_TO_STORE:
             self.alerts.pop()
@@ -841,14 +927,20 @@ class ArbitrageBot:
         await self._broadcast_bot_status() # Alerts are part of bot status
 
     async def _broadcast_bot_status(self):
-        from .main import manager # Local import to avoid circular dependency
-        status_payload = await self.get_full_bot_status()
-        await manager.broadcast_bot_status(status_payload)
+        from .api import connection_manager as manager # Local import to avoid circular dependency
+        logger.info(f"Broadcasting bot status. Current mode: {self.current_mode}, running: {self.running}")
+        try:
+            status_payload = await self.get_full_bot_status()
+            logger.info(f"Got full bot status. Mode in status: {status_payload.current_mode}")
+            await manager.broadcast({"type": "bot_status_update", "payload": status_payload.model_dump()})
+            logger.info("Bot status broadcast completed successfully")
+        except Exception as e:
+            logger.error(f"Error broadcasting bot status: {e}", exc_info=True)
 
     async def _broadcast_failsafe_status(self):
-        from .main import manager # Local import
+        from .api import connection_manager as manager # Local import to avoid circular dependency
         failsafe_data = await self.get_failsafe_status()
-        await manager.broadcast_message(FailsafeStatusUpdate(type="failsafe_status", data=failsafe_data).model_dump_json())
+        await manager.broadcast({"type": "failsafe_status", "data": failsafe_data.model_dump()})
 
     async def get_full_bot_status(self) -> BotStatusUpdate:
         exchange_statuses: List[ExchangeConnectionStatus] = []
@@ -872,7 +964,7 @@ class ArbitrageBot:
                 exchange_balances_list.append(ExchangeBalanceUpdate(exchange=ex_id, balances=balances_data if balances_data else {}, error=error_msg))
 
         return BotStatusUpdate(
-            is_running=self.running,
+            is_bot_running=self.running,
             current_mode=self.current_mode,
             connected_exchanges=[ex.exchange for ex in exchange_statuses if ex.connected], # From actual status
             supported_exchanges=exchange_manager.get_supported_exchanges(),
