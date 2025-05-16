@@ -134,6 +134,8 @@ export default function TestModeTab({
       await onBotAction("start_test", settings);
     }
   };
+  
+  const isInitializing = testSimulationStatus?.status === "INITIALIZING";
 
   const chartData = useMemo(() => {
     return currentTestTrades
@@ -258,11 +260,29 @@ export default function TestModeTab({
           <CardFooter>
             <Button
               onClick={handleStartStopSimulation}
-              disabled={(selectedExchanges.length < 2 && !isSimulationRunning) || isSimulationStopping}
-              className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${isSimulationRunning ? (isSimulationStopping ? "bg-yellow-600 hover:bg-yellow-700 cursor-not-allowed" : "bg-red-600 hover:bg-red-700") : "bg-green-600 hover:bg-green-700"}`}
+              disabled={(selectedExchanges.length < 2 && !isSimulationRunning) || isSimulationStopping || isInitializing}
+              className={`w-full text-white font-semibold py-3 px-4 rounded-md transition-colors duration-150 flex items-center justify-center space-x-2 ${
+                isSimulationRunning 
+                  ? (isSimulationStopping ? "bg-yellow-600 hover:bg-yellow-700 cursor-not-allowed" : "bg-red-600 hover:bg-red-700") 
+                  : isInitializing 
+                    ? "bg-blue-600 hover:bg-blue-700 cursor-wait" 
+                    : "bg-green-600 hover:bg-green-700"
+              }`}
             >
-              {isSimulationRunning ? (isSimulationStopping ? <Square size={20} className="animate-spin"/> : <Square size={20}/>) : <Play size={20}/>}
-              <span>{isSimulationRunning ? (isSimulationStopping ? "Stopping..." : "Stop Simulation") : "Start Simulation"}</span>
+              {isSimulationRunning 
+                ? (isSimulationStopping ? <Square size={20} className="animate-spin"/> : <Square size={20}/>) 
+                : isInitializing 
+                  ? <Square size={20} className="animate-spin"/> 
+                  : <Play size={20}/>
+              }
+              <span>
+                {isSimulationRunning 
+                  ? (isSimulationStopping ? "Stopping..." : "Stop Simulation") 
+                  : isInitializing 
+                    ? "Initializing..." 
+                    : "Start Simulation"
+                }
+              </span>
             </Button>
           </CardFooter>
         </Card>

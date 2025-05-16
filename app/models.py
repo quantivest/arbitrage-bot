@@ -150,11 +150,12 @@ class FailsafeStatusData(BaseModel):
 
 class TestSimulationStatusPayload(BaseModel):
     """Payload for test simulation status updates via WebSocket."""
-    status: Literal["IDLE", "STARTING", "RUNNING", "STOPPING", "STOPPED", "ERROR", "UNKNOWN"] = Field(default="IDLE")
+    status: Literal["IDLE", "STARTING", "RUNNING", "STOPPING", "STOPPED", "ERROR", "UNKNOWN", "INITIALIZING"] = Field(default="IDLE")
     message: Optional[str] = Field(default=None)
     active_since: Optional[datetime] = Field(default=None)
     total_test_trades: int = Field(default=0)
     total_test_profit: float = Field(default=0.0)
+    error_message: Optional[str] = Field(default=None)
 
 class BotStatusPayload(BaseModel):
     """Comprehensive status of the bot, typically sent via WebSocket or API."""
