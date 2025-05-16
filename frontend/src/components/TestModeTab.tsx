@@ -166,8 +166,13 @@ export default function TestModeTab({
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Configuration Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertTitle>Test Mode Error</AlertTitle>
+          <AlertDescription>
+            <p>{error}</p>
+            {testSimulationStatus?.error_message && error.includes("unexpected error") && (
+              <p className="mt-2 text-sm text-red-300">{testSimulationStatus.error_message}</p>
+            )}
+          </AlertDescription>
         </Alert>
       )}
 
