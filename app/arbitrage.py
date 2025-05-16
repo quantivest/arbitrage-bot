@@ -241,6 +241,20 @@ class ArbitrageBot:
                     self.current_mode = "test_simulating"
                     self.test_simulation_active_since = datetime.now(timezone.utc)
                     
+                    # Start the main loop after successful initialization
+                    self.running = True
+                    loop = asyncio.get_event_loop()
+                    if self._main_loop_task and not self._main_loop_task.done():
+                        logger.warning("Warning: Previous main loop task was still active. Attempting to cancel.")
+                        self._main_loop_task.cancel()
+                        try:
+                            await self._main_loop_task
+                        except asyncio.CancelledError:
+                            logger.info("Previous main loop task successfully cancelled.")
+                    
+                    self._main_loop_task = loop.create_task(self._main_loop())
+                    logger.info(f"Bot started successfully in {self.current_mode} mode after test balance initialization.")
+                    
             self.test_initializing = False
             await self._broadcast_bot_status()  # Broadcast updated status
             
@@ -343,6 +357,7 @@ class ArbitrageBot:
 
     async def _main_loop(self):
         logger.info(f"Main loop started for mode: {self.current_mode}")
+        logger.info(f"Bot running state: {self.running}, mode: {self.current_mode}")
         while self.running:
             try:
                 if self._failsafe_status_internal.global_trading_halt:
