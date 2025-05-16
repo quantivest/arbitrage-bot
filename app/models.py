@@ -160,7 +160,7 @@ class TestSimulationStatusPayload(BaseModel):
 class BotStatusPayload(BaseModel):
     """Comprehensive status of the bot, typically sent via WebSocket or API."""
     is_bot_running: bool = Field(..., description="Overall status of whether the bot's main loop is active (live or test)")
-    current_mode: Literal["idle", "live", "test_simulating"] = Field(default="idle", description="Current operational mode of the bot")
+    current_mode: Literal["idle", "live", "test_simulating", "test_initializing", "test_stopping", "test_stopped", "test_idle"] = Field(default="idle", description="Current operational mode of the bot")
     connected_exchanges: List[str] = Field(default_factory=list, description="List of currently connected and verified exchanges")
     websocket_connected: bool = Field(default=False, description="Frontend WebSocket connection status to backend")
     last_status_update_ts: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of this status payload generation")
@@ -234,7 +234,7 @@ class ExchangeBalanceUpdate(BaseModel):
 class BotStatusUpdate(BaseModel):
     type: Literal["bot_status_update"] = "bot_status_update"
     is_bot_running: bool
-    current_mode: Literal["idle", "live", "test_simulating"]
+    current_mode: Literal["idle", "live", "test_simulating", "test_initializing", "test_stopping", "test_stopped", "test_idle"]
     connected_exchanges: List[str] = Field(default_factory=list)
     websocket_connected: bool = False
     timestamp: datetime = Field(default_factory=datetime.utcnow)
