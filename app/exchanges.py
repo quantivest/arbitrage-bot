@@ -2,13 +2,14 @@ import ccxt.async_support as ccxt
 import asyncio
 import time
 import json
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from datetime import datetime, timezone
 from .models import Balance, ExchangeBalance, OrderBook, OrderBookEntry
 from .config import settings
 import logging
 import base64 
 import binascii 
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -252,34 +253,72 @@ class ExchangeManager:
             self.exchange_balances[exchange_id] = ExchangeBalance(exchange=exchange_id, balances={}, timestamp=datetime.now(timezone.utc), error=f"Unexpected error: {e_unhandled}")
             return None
 
-    async def fetch_order_book(self, exchange_id: str, symbol: str, limit: int = 20) -> Optional[OrderBook]: # Added limit parameter
+    async def fetch_order_book(self, exchange_id: str, symbol: str, limit: int = 20, max_retries: int = 3, initial_backoff: float = 0.5) -> Optional[OrderBook]:
+        """Fetch order book for a symbol on an exchange with retry and backoff.
+        
+        Args:
+            exchange_id: ID of the exchange to fetch order book from
+            symbol: Trading pair symbol (e.g., BTC/USDT)
+            limit: Limit the number of price levels returned
+            max_retries: Maximum number of retry attempts
+            initial_backoff: Initial backoff time in seconds (will increase exponentially)
+            
+        Returns:
+            OrderBook object or None if fetching fails after all retries
+        """
         if exchange_id not in self.exchanges:
             logger.warning(f"Cannot fetch order book: Exchange {exchange_id} not connected.")
             return None
         
         exchange = self.exchanges[exchange_id]
-        try:
-            logger.debug(f"Fetching order book for {symbol} on {exchange_id} with limit {limit}...")
-            raw_ob = await exchange.fetch_order_book(symbol, limit=limit)
-            
-            # Ensure bids and asks are sorted correctly (desc for bids, asc for asks by price)
-            # CCXT usually returns them sorted, but good to be defensive.
-            # Bids: highest price first. Asks: lowest price first.
-            bids = sorted([OrderBookEntry(price=float(b[0]), amount=float(b[1])) for b in raw_ob.get("bids", [])], key=lambda x: x.price, reverse=True)
-            asks = sorted([OrderBookEntry(price=float(a[0]), amount=float(a[1])) for a in raw_ob.get("asks", [])], key=lambda x: x.price)
+        backoff = initial_backoff
+        attempts = 0
+        
+        while attempts <= max_retries:
+            try:
+                if attempts > 0:
+                    logger.debug(f"Retry attempt {attempts}/{max_retries} for fetching order book for {symbol} on {exchange_id} with backoff {backoff:.2f}s")
+                
+                logger.debug(f"Fetching order book for {symbol} on {exchange_id} with limit {limit}...")
+                raw_ob = await exchange.fetch_order_book(symbol, limit=limit)
+                
+                # Ensure bids and asks are sorted correctly (desc for bids, asc for asks by price)
+                # CCXT usually returns them sorted, but good to be defensive.
+                # Bids: highest price first. Asks: lowest price first.
+                bids = sorted([OrderBookEntry(price=float(b[0]), amount=float(b[1])) for b in raw_ob.get("bids", [])], key=lambda x: x.price, reverse=True)
+                asks = sorted([OrderBookEntry(price=float(a[0]), amount=float(a[1])) for a in raw_ob.get("asks", [])], key=lambda x: x.price)
+                
+                timestamp = None
+                if raw_ob.get("timestamp") is not None:
+                    try:
+                        timestamp = datetime.fromtimestamp(raw_ob["timestamp"] / 1000, timezone.utc)
+                    except (ValueError, TypeError, OverflowError) as e:
+                        logger.warning(f"Error converting timestamp for {symbol} on {exchange_id}: {e}")
+                        timestamp = datetime.now(timezone.utc)
+                else:
+                    timestamp = datetime.now(timezone.utc)
 
-            order_book = OrderBook(
-                symbol=symbol,
-                bids=bids[:limit], # Apply limit again after potential re-sorting, though ccxt should handle it
-                asks=asks[:limit],
-                timestamp=raw_ob.get("timestamp", int(time.time() * 1000)),
-                exchange=exchange_id
-            )
-            logger.debug(f"Successfully fetched order book for {symbol} on {exchange_id}. Top bid: {bids[0].price if bids else 'N/A'}, Top ask: {asks[0].price if asks else 'N/A'}")
-            return order_book
-        except Exception as e:
-            logger.error(f"Error fetching order book for {symbol} on {exchange_id}: {e}", exc_info=True)
-            return None
+                order_book = OrderBook(
+                    symbol=symbol,
+                    bids=bids[:limit],  # Apply limit again after potential re-sorting
+                    asks=asks[:limit],
+                    timestamp=timestamp,
+                    exchange=exchange_id
+                )
+                logger.debug(f"Successfully fetched order book for {symbol} on {exchange_id}. Top bid: {bids[0].price if bids else 'N/A'}, Top ask: {asks[0].price if asks else 'N/A'}")
+                return order_book
+                
+            except Exception as e:
+                attempts += 1
+                if attempts <= max_retries:
+                    jitter = random.uniform(0, 0.1 * backoff)  # Add up to 10% jitter
+                    wait_time = backoff + jitter
+                    logger.warning(f"Error fetching order book for {symbol} on {exchange_id} (attempt {attempts}/{max_retries}): {e}. Retrying in {wait_time:.2f}s", exc_info=True)
+                    await asyncio.sleep(wait_time)
+                    backoff *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Failed to fetch order book for {symbol} on {exchange_id} after {max_retries} attempts: {e}", exc_info=True)
+                    return None
 
     async def fetch_ticker(self, exchange_id: str, symbol: str) -> Optional[Dict[str, Any]]:
         if exchange_id not in self.exchanges:
@@ -309,12 +348,13 @@ class ExchangeManager:
             logger.error(f"Error creating order on {exchange_id} for {symbol}: {e}", exc_info=True)
             return None
 
-    async def get_all_order_books_for_pairs(self, pairs: List[str], limit: int = 20) -> Dict[str, Dict[str, OrderBook]]:
+    async def get_all_order_books_for_pairs(self, pairs: List[str], limit: int = 20, max_retries: int = 3) -> Dict[str, Dict[str, OrderBook]]:
         """Fetch order books for all connected exchanges for the given pairs.
         
         Args:
             pairs: List of trading pairs (e.g., ["BTC/USDT", "ETH/USDT"])
             limit: Depth limit for order book
+            max_retries: Maximum number of retry attempts for each order book fetch
             
         Returns:
             Dictionary of dictionaries mapping {exchange_id -> {symbol -> OrderBook}}
@@ -326,7 +366,7 @@ class ExchangeManager:
             all_order_books[exchange_id] = {}
             for symbol in pairs:
                 try:
-                    order_book = await self.fetch_order_book(exchange_id, symbol, limit)
+                    order_book = await self.fetch_order_book(exchange_id, symbol, limit, max_retries)
                     if order_book:
                         all_order_books[exchange_id][symbol] = order_book
                 except Exception as e:
