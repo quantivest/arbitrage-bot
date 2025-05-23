@@ -491,67 +491,82 @@ class ArbitrageBot:
 
     async def _find_opportunities(self, all_order_books: Dict[str, Dict[str, OrderBook]]) -> List[ArbitrageOpportunity]:
         opportunities = []
+        
         if not all_order_books:
             return opportunities
 
-        for pair in settings.USER_DEFINED_PAIRS:
-            if self._is_pair_disabled(pair):
-                logger.debug(f"Pair {pair} is disabled by failsafe. Skipping opportunity scan.")
-                continue
+        try:
+            for pair in settings.USER_DEFINED_PAIRS:
+                if self._is_pair_disabled(pair):
+                    logger.debug(f"Pair {pair} is disabled by failsafe. Skipping opportunity scan.")
+                    continue
 
-            pair_order_books = {ex: books[pair] for ex, books in all_order_books.items() if pair in books}
-            if len(pair_order_books) < 2:
-                continue
+                pair_order_books = {ex: books[pair] for ex, books in all_order_books.items() if pair in books}
+                if len(pair_order_books) < 2:
+                    continue
 
-            exchanges = list(pair_order_books.keys())
-            for i in range(len(exchanges)):
-                for j in range(len(exchanges)):
-                    if i == j: 
-                        continue
+                exchanges = list(pair_order_books.keys())
+                for i in range(len(exchanges)):
+                    for j in range(len(exchanges)):
+                        if i == j: 
+                            continue
 
-                    buy_exchange_id = exchanges[i]
-                    sell_exchange_id = exchanges[j]
+                        buy_exchange_id = exchanges[i]
+                        sell_exchange_id = exchanges[j]
 
-                    if self._is_exchange_disabled(buy_exchange_id) or self._is_exchange_disabled(sell_exchange_id):
-                        logger.debug(f"One of the exchanges ({buy_exchange_id}, {sell_exchange_id}) for pair {pair} is disabled. Skipping.")
-                        continue
+                        if self._is_exchange_disabled(buy_exchange_id) or self._is_exchange_disabled(sell_exchange_id):
+                            logger.debug(f"One of the exchanges ({buy_exchange_id}, {sell_exchange_id}) for pair {pair} is disabled. Skipping.")
+                            continue
 
-                    buy_book = pair_order_books[buy_exchange_id]
-                    sell_book = pair_order_books[sell_exchange_id]
+                        buy_book = pair_order_books[buy_exchange_id]
+                        sell_book = pair_order_books[sell_exchange_id]
 
-                    if not buy_book.asks or not sell_book.bids:
-                        continue
+                        if not buy_book.asks or not sell_book.bids:
+                            continue
 
-                    best_ask_price = buy_book.asks[0].price
-                    best_ask_volume = buy_book.asks[0].amount
-                    best_bid_price = sell_book.bids[0].price
-                    best_bid_volume = sell_book.bids[0].amount
+                        best_ask_price = buy_book.asks[0].price
+                        best_ask_volume = buy_book.asks[0].amount
+                        best_bid_price = sell_book.bids[0].price
+                        best_bid_volume = sell_book.bids[0].amount
 
-                    if best_ask_price <= 0 or best_bid_price <= 0:
-                        continue # Invalid prices
+                        if best_ask_price <= 0 or best_bid_price <= 0:
+                            continue # Invalid prices
 
-                    profit_percentage = ((best_bid_price - best_ask_price) / best_ask_price) * 100
+                        profit_percentage = ((best_bid_price - best_ask_price) / best_ask_price) * 100
 
-                    if profit_percentage > self.buffer_percentage * 100:
-                        opportunity = ArbitrageOpportunity(
-                            pair=pair,
-                            buy_exchange=buy_exchange_id,
-                            sell_exchange=sell_exchange_id,
-                            buy_price=best_ask_price,
-                            sell_price=best_bid_price,
-                            potential_profit_percentage=profit_percentage,
-                            timestamp=datetime.now(timezone.utc),
-                            buy_exchange_orderbook_timestamp=buy_book.timestamp,
-                            sell_exchange_orderbook_timestamp=sell_book.timestamp,
-                            max_volume_base=min(best_ask_volume, best_bid_volume) # Simplistic volume for now
-                        )
-                        opportunities.append(opportunity)
-                        self.opportunities.insert(0, opportunity)
-                        if len(self.opportunities) > 50: # Keep last 50
-                            self.opportunities.pop()
-                        logger.info(f"Found opportunity: {opportunity}")
+                        if profit_percentage > self.buffer_percentage * 100:
+                            # Calculate max_tradeable_amount_base and max_tradeable_amount_quote
+                            max_volume_base = min(best_ask_volume, best_bid_volume)  # Simplistic volume for now
+                            max_tradeable_amount_quote = max_volume_base * best_ask_price  # Amount in quote currency needed to buy
+
+                            try:
+                                opportunity = ArbitrageOpportunity(
+                                    id=str(uuid.uuid4()),  # Generate unique ID
+                                    pair=pair,  # Will be aliased to symbol in the model
+                                    buy_exchange=buy_exchange_id,
+                                    sell_exchange=sell_exchange_id,
+                                    buy_price=best_ask_price,
+                                    sell_price=best_bid_price,
+                                    potential_profit_percentage=profit_percentage,
+                                    max_tradeable_amount_base=max_volume_base,
+                                    max_tradeable_amount_quote=max_tradeable_amount_quote,
+                                    timestamp=datetime.now(timezone.utc),
+                                    source=self.current_mode
+                                )
+                                opportunities.append(opportunity)
+                                self.opportunities.insert(0, opportunity)
+                                if len(self.opportunities) > 50: # Keep last 50
+                                    self.opportunities.pop()
+                                logger.info(f"Found opportunity: {opportunity}")
+                            except Exception as e:
+                                logger.error(f"Error creating ArbitrageOpportunity for {pair} on {buy_exchange_id}->{sell_exchange_id}: {e}", exc_info=True)
+                                continue
+            
+            opportunities.sort(key=lambda o: o.potential_profit_percentage, reverse=True)
+        except Exception as e:
+            logger.error(f"Error finding arbitrage opportunities: {e}", exc_info=True)
+            await self._add_alert(AlertType.SYSTEM_ERROR, f"Error in opportunity processing: {e}", "global", "warning")
         
-        opportunities.sort(key=lambda o: o.potential_profit_percentage, reverse=True)
         return opportunities
 
     async def _execute_arbitrage(self, opportunity: ArbitrageOpportunity):
@@ -589,7 +604,7 @@ class ArbitrageBot:
         max_sellable_base = sell_exchange_base_balance * 0.99 # 0.99 for safety
 
         # Smallest of opportunity volume, what we can afford to buy, what we have to sell
-        tradable_base_amount = min(opportunity.max_volume_base, max_buyable_base_with_quote, max_sellable_base)
+        tradable_base_amount = min(opportunity.max_tradeable_amount_base, max_buyable_base_with_quote, max_sellable_base)
         
         # Apply min/max trade size constraints (in quote currency for the buy leg)
         buy_leg_quote_value = tradable_base_amount * opportunity.buy_price
