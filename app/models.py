@@ -43,7 +43,7 @@ class ArbitrageOpportunity(BaseModel):
     id: str = Field(..., description="Unique identifier for the opportunity")
     buy_exchange: str = Field(..., description="Exchange to buy on")
     sell_exchange: str = Field(..., description="Exchange to sell on")
-    symbol: str = Field(..., description="Trading pair symbol")
+    symbol: str = Field(..., description="Trading pair symbol", alias="pair")
     buy_price: float = Field(..., description="Price to buy at")
     sell_price: float = Field(..., description="Price to sell at")
     potential_profit_percentage: float = Field(..., description="Estimated profit percentage after considering fees and buffer")
