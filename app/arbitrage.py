@@ -2,6 +2,7 @@ import asyncio
 import time
 import uuid
 import traceback
+import random
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timedelta, timezone
 from .models import (
@@ -288,6 +289,15 @@ class ArbitrageBot:
         usdt_capital_per_exchange = test_settings.usdt_capital_per_exchange
         asset_capital_usd_per_pair = test_settings.asset_capital_usd_per_pair 
 
+        if usdt_capital_per_exchange <= 0:
+            logger.warning(f"USDT capital per exchange is too low: ${usdt_capital_per_exchange}. Setting to minimum of $100.")
+            usdt_capital_per_exchange = 100.0
+        
+        if asset_capital_usd_per_pair <= 0:
+            logger.warning(f"Asset capital per pair is too low: ${asset_capital_usd_per_pair}. Setting to minimum of $100.")
+            asset_capital_usd_per_pair = 100.0
+            
+        # Log test balance initialization
         logger.info(f"Initializing test balances for exchanges: {exchanges_to_init}")
         logger.info(f"USDT capital per exchange: ${usdt_capital_per_exchange}")
         logger.info(f"USD value for each base asset (for {len(settings.USER_DEFINED_PAIRS)} pairs) per exchange: ${asset_capital_usd_per_pair}")
@@ -421,12 +431,27 @@ class ArbitrageBot:
                 # Fetch real order books for both live and true dry-run test mode
                 logger.info(f"Fetching order books for mode: {self.current_mode} (iteration #{iteration_count})")
                 try:
-                    all_order_books = await exchange_manager.get_all_order_books_for_pairs(settings.USER_DEFINED_PAIRS)
-                    logger.info(f"Order books fetched successfully: {len(all_order_books)} exchanges with data (iteration #{iteration_count})")
-                    for ex, books in all_order_books.items():
-                        logger.info(f"Exchange {ex} has {len(books)} order books (iteration #{iteration_count})")
-                        if len(books) == 0:
-                            logger.warning(f"Exchange {ex} has 0 order books. This may cause issues for finding opportunities.")
+                    all_order_books = await exchange_manager.get_all_order_books_for_pairs(
+                        settings.USER_DEFINED_PAIRS, 
+                        settings.ORDER_BOOK_DEPTH_LIMIT,
+                        max_retries=3
+                    )
+                    
+                    total_books = sum(len(books) for books in all_order_books.values())
+                    if total_books == 0:
+                        logger.warning("No valid order books were fetched. Skipping opportunity scan.")
+                        await self._add_alert(AlertType.SYSTEM_WARNING, "No valid order books were fetched. Check exchange connections.", "global", "warning")
+                        continue
+                       
+                    valid_pairs_count = 0
+                    for exchange_id, books in all_order_books.items():
+                        for pair, book in books.items():
+                            if book and book.bids and book.asks:
+                                valid_pairs_count += 1
+                   
+                    logger.debug(f"Fetched {total_books} order books across {len(all_order_books)} exchanges with {valid_pairs_count} valid pairs")
+                    for exchange_id, books in all_order_books.items():
+                        logger.info(f"Exchange {exchange_id} has {len(books)} order books (iteration #{iteration_count})")
                 except Exception as e:
                     logger.error(f"Error fetching order books (iteration #{iteration_count}): {e}", exc_info=True)
                     all_order_books = {}
@@ -533,8 +558,25 @@ class ArbitrageBot:
                             continue # Invalid prices
 
                         profit_percentage = ((best_bid_price - best_ask_price) / best_ask_price) * 100
-
-                        if profit_percentage > self.buffer_percentage * 100:
+                        
+                        buy_exchange_fee = exchange_manager.get_exchange_fee_rate(buy_exchange_id) or settings.EXCHANGE_DEFAULT_FEE_RATE
+                        sell_exchange_fee = exchange_manager.get_exchange_fee_rate(sell_exchange_id) or settings.EXCHANGE_DEFAULT_FEE_RATE
+                        
+                        buy_slippage = exchange_manager.get_exchange_slippage_percentage(buy_exchange_id)
+                        sell_slippage = exchange_manager.get_exchange_slippage_percentage(sell_exchange_id)
+                        
+                        # Calculate buffer as 0.01% of buy price
+                        buffer_amount = best_ask_price * 0.0001  # 0.01% as requested
+                        
+                        total_cost_percentage = (buy_exchange_fee + sell_exchange_fee + buy_slippage + sell_slippage) * 100 + 0.01  # 0.01% buffer
+                        
+                        if profit_percentage > 0 and profit_percentage <= total_cost_percentage:
+                            logger.debug(f"Near-miss opportunity for {pair}: {buy_exchange_id}->{sell_exchange_id}, " +
+                                        f"profit: {profit_percentage:.4f}%, cost: {total_cost_percentage:.4f}% " +
+                                        f"(fees: {(buy_exchange_fee + sell_exchange_fee) * 100:.4f}%, " +
+                                        f"slippage: {(buy_slippage + sell_slippage) * 100:.4f}%, buffer: 0.01%)")
+                        
+                        if profit_percentage > total_cost_percentage:
                             # Calculate max_tradeable_amount_base and max_tradeable_amount_quote
                             max_volume_base = min(best_ask_volume, best_bid_volume)  # Simplistic volume for now
                             max_tradeable_amount_quote = max_volume_base * best_ask_price  # Amount in quote currency needed to buy
@@ -559,13 +601,24 @@ class ArbitrageBot:
                                     self.opportunities.pop()
                                 logger.info(f"Found opportunity: {opportunity}")
                             except Exception as e:
-                                logger.error(f"Error creating ArbitrageOpportunity for {pair} on {buy_exchange_id}->{sell_exchange_id}: {e}", exc_info=True)
+                                error_msg = f"Error creating ArbitrageOpportunity for {pair} on {buy_exchange_id}->{sell_exchange_id}: {e}"
+                                logger.error(error_msg, exc_info=True)
+                                await self._add_alert(AlertType.SYSTEM_ERROR, error_msg, pair, "error")
                                 continue
             
             opportunities.sort(key=lambda o: o.potential_profit_percentage, reverse=True)
         except Exception as e:
-            logger.error(f"Error finding arbitrage opportunities: {e}", exc_info=True)
-            await self._add_alert(AlertType.SYSTEM_ERROR, f"Error in opportunity processing: {e}", "global", "warning")
+            error_msg = f"Error finding arbitrage opportunities: {e}"
+            logger.error(error_msg, exc_info=True)
+            await self._add_alert(AlertType.SYSTEM_ERROR, error_msg, "global", "error")
+            
+        if not opportunities and self.running:
+            logger.info(f"No profitable opportunities found in this scan cycle. Mode: {self.current_mode}")
+            if random.random() < 0.1:  # ~10% of scans with no opportunities
+                await self._add_alert(AlertType.SYSTEM_INFO, 
+                                     f"Scanning {len(settings.USER_DEFINED_PAIRS)} pairs but no profitable opportunities found. " +
+                                     f"Adjust buffer settings or wait for better market conditions.", 
+                                     "global", "info")
         
         return opportunities
 
@@ -618,8 +671,12 @@ class ArbitrageBot:
             buy_leg_quote_value = tradable_base_amount * opportunity.buy_price # Recalculate
 
         if tradable_base_amount <= 0:
-            logger.info(f"Skipping opportunity: Calculated tradable base amount is {tradable_base_amount:.8f} for {opportunity.pair}")
-            return
+            logger.warning(f"Skipping opportunity: Calculated tradable base amount is {tradable_base_amount:.8f} for {opportunity.pair}")
+            await self._add_alert(AlertType.TRADE_WARNING, 
+                                 f"Insufficient balance to execute trade for {opportunity.pair}. " +
+                                 f"Required: {opportunity.max_tradeable_amount_base:.8f} {base_currency}", 
+                                 opportunity.pair, "warning")
+            return None
 
         logger.info(f"Calculated tradable base amount for {opportunity.pair}: {tradable_base_amount:.8f} {base_currency} (Value: ${buy_leg_quote_value:.2f}) Test Mode: {is_test}")
 
@@ -676,6 +733,14 @@ class ArbitrageBot:
                 
                 logger.info(f"[TEST MODE] Simulated BUY {tradable_base_amount:.8f} {base_currency} @ {actual_buy_price} on {opportunity.buy_exchange}")
                 logger.info(f"[TEST MODE] Simulated SELL {tradable_base_amount:.8f} {base_currency} @ {actual_sell_price} on {opportunity.sell_exchange}")
+                
+                logger.info(f"[TEST MODE] Updated {opportunity.buy_exchange} balances: " +
+                           f"{base_currency}={self.test_balances[opportunity.buy_exchange][base_currency]['free']:.8f}, " +
+                           f"{quote_currency}={self.test_balances[opportunity.buy_exchange][quote_currency]['free']:.2f}")
+                logger.info(f"[TEST MODE] Updated {opportunity.sell_exchange} balances: " +
+                           f"{base_currency}={self.test_balances[opportunity.sell_exchange][base_currency]['free']:.8f}, " +
+                           f"{quote_currency}={self.test_balances[opportunity.sell_exchange][quote_currency]['free']:.2f}")
+                
                 await self._broadcast_bot_status() # Update UI with new test balances
 
             else: # Live mode execution

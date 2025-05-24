@@ -396,6 +396,31 @@ export default function TestModeTab({
                     </AlertDescription>
                 </Alert>
             )}
+            
+            {/* Add Debug Information Section */}
+            <div className="mt-6">
+                <h3 className="text-lg font-semibold text-white mb-2 flex items-center">
+                    <AlertCircle size={18} className="mr-2 text-orange-400"/>Debug Information
+                </h3>
+                <Alert variant="outline" className="bg-gray-800/70 border-gray-700">
+                    <AlertTitle className="text-sm font-medium text-gray-300">Opportunity Scanning Status</AlertTitle>
+                    <AlertDescription className="text-xs text-gray-400">
+                        {testSimulationStatus?.status === "RUNNING" ? 
+                            `Actively scanning ${TARGET_TRADING_PAIRS.length} pairs across ${selectedExchanges.length} exchanges.` : 
+                            "Bot is not running. Start test mode to begin scanning."}
+                    </AlertDescription>
+                    {testSimulationStatus?.status === "RUNNING" && testTrades.length === 0 && (
+                        <AlertDescription className="text-xs text-yellow-400 mt-2">
+                            No profitable opportunities found yet. This could be due to:
+                            <ul className="list-disc pl-5 mt-1 space-y-1">
+                                <li>Buffer percentage too high (currently {bufferPercentage.toFixed(4)}%)</li>
+                                <li>Insufficient price differences between exchanges</li>
+                                <li>Market conditions not favorable for arbitrage</li>
+                            </ul>
+                        </AlertDescription>
+                    )}
+                </Alert>
+            </div>
           </CardContent>
         </Card>
       </div>
