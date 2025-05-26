@@ -48,6 +48,7 @@ class ArbitrageBot:
         self.test_initialization_task = None  # Task reference for the async initialization
         self.live_total_trades = 0
         self.live_total_profit = 0.0
+        self.min_profit_percentage_threshold = settings.MIN_PROFIT_PERCENTAGE_THRESHOLD
         logger.info(f"ArbitrageBot initialized. Default buffer: {self.buffer_percentage*100:.4f}%, Min trade: ${self.min_trade_amount_quote}, Max trade leg: ${self.max_trade_amount_quote}")
         
     def _set_test_error_message(self, error):
@@ -161,6 +162,10 @@ class ArbitrageBot:
             else:
                 self.buffer_percentage = settings.BUFFER_PERCENTAGE
             logger.info(f"Test Mode (Dry Run): Buffer percentage set to {self.buffer_percentage*100:.4f}%")
+            
+            self.min_profit_percentage_threshold = settings.MIN_PROFIT_PERCENTAGE_THRESHOLD / 2  # Halve the threshold for test mode
+            self.min_trade_amount_quote = settings.MIN_TRADE_AMOUNT_QUOTE / 2  # Halve the minimum for test mode
+            logger.info(f"Test Mode: Using reduced profit threshold: {self.min_profit_percentage_threshold*100:.4f}% and min trade amount: ${self.min_trade_amount_quote:.2f}")
             
             # Start asynchronous initialization
             loop = asyncio.get_event_loop()
@@ -492,6 +497,9 @@ class ArbitrageBot:
                 sleep_duration = max(0, settings.SCAN_INTERVAL_SECONDS - elapsed_time)
                 logger.info(f"Loop iteration #{iteration_count} took {elapsed_time:.2f}s. Sleeping for {sleep_duration:.2f}s for mode: {self.current_mode}")
                 
+                if self.is_actively_simulating_test_mode and iteration_count > 5:  # Give a few iterations to find natural opportunities
+                    await self._simulate_test_trade_if_needed(iteration_count)
+                
                 if not self.running:
                     logger.warning(f"Bot is no longer running before sleep in iteration #{iteration_count}. Exiting main loop.")
                     break
@@ -570,6 +578,8 @@ class ArbitrageBot:
                         
                         total_cost_percentage = (buy_exchange_fee + sell_exchange_fee + buy_slippage + sell_slippage) * 100 + 0.01  # 0.01% buffer
                         
+                        min_profit_threshold = self.min_profit_percentage_threshold * 100 if hasattr(self, 'min_profit_percentage_threshold') else settings.MIN_PROFIT_PERCENTAGE_THRESHOLD * 100
+                        
                         if profit_percentage > 0 and profit_percentage <= total_cost_percentage:
                             logger.debug(f"Near-miss opportunity for {pair}: {buy_exchange_id}->{sell_exchange_id}, " +
                                         f"profit: {profit_percentage:.4f}%, cost: {total_cost_percentage:.4f}% " +
@@ -577,6 +587,10 @@ class ArbitrageBot:
                                         f"slippage: {(buy_slippage + sell_slippage) * 100:.4f}%, buffer: 0.01%)")
                         
                         if profit_percentage > total_cost_percentage:
+                            pass
+                        elif profit_percentage > 0 and self.is_actively_simulating_test_mode and profit_percentage > min_profit_threshold:
+                            logger.info(f"Test mode opportunity with relaxed threshold: {profit_percentage:.4f}% > {min_profit_threshold:.4f}%")
+                        else:
                             # Calculate max_tradeable_amount_base and max_tradeable_amount_quote
                             max_volume_base = min(best_ask_volume, best_bid_volume)  # Simplistic volume for now
                             max_tradeable_amount_quote = max_volume_base * best_ask_price  # Amount in quote currency needed to buy
@@ -661,6 +675,10 @@ class ArbitrageBot:
         
         # Apply min/max trade size constraints (in quote currency for the buy leg)
         buy_leg_quote_value = tradable_base_amount * opportunity.buy_price
+        
+        if is_test:
+            logger.info(f"TEST MODE DEBUG - Balances: Buy exchange {opportunity.buy_exchange} {quote_currency}: {buy_exchange_quote_balance}")
+            logger.info(f"TEST MODE DEBUG - Calculated tradable amount: {tradable_base_amount}, min required: {self.min_trade_amount_quote/opportunity.buy_price}")
         
         if buy_leg_quote_value < self.min_trade_amount_quote:
             logger.info(f"Skipping opportunity: Trade value ${buy_leg_quote_value:.2f} is below min ${self.min_trade_amount_quote:.2f}")
@@ -855,6 +873,46 @@ class ArbitrageBot:
             await self._add_alert(AlertType.TRADE_FAILURE, f"Execution error for {opportunity.pair}: {e}", "global", "critical", opportunity.pair)
             await self._increment_failure_count(opportunity.buy_exchange, opportunity.pair)
             await self._increment_failure_count(opportunity.sell_exchange, opportunity.pair)
+    async def _simulate_test_trade_if_needed(self, iteration_count):
+        """Force a test trade periodically if no natural opportunities are found"""
+        if (self.is_actively_simulating_test_mode and 
+            iteration_count % settings.TEST_MODE_TRADE_INTERVAL_ITERATIONS == 0 and
+            len([t for t in self.trades if t.is_test_trade]) == 0):  # Only if no test trades have been executed yet
+            
+            logger.info("No natural opportunities found after several iterations. Forcing a test trade for demonstration.")
+            
+            exchanges = list(exchange_manager.exchanges.keys())
+            if len(exchanges) < 2:
+                logger.warning("Cannot force test trade: Need at least 2 exchanges")
+                return
+                
+            buy_exchange = exchanges[0]
+            sell_exchange = exchanges[1]
+            
+            if not settings.USER_DEFINED_PAIRS:
+                logger.warning("Cannot force test trade: No pairs defined")
+                return
+                
+            pair = settings.USER_DEFINED_PAIRS[0]
+            base_currency, quote_currency = pair.split("/")
+            
+            opportunity = ArbitrageOpportunity(
+                id=str(uuid.uuid4()),
+                pair=pair,
+                buy_exchange=buy_exchange,
+                sell_exchange=sell_exchange,
+                buy_price=100.0,  # Synthetic price
+                sell_price=100.2,  # 0.2% profit
+                potential_profit_percentage=0.2,
+                max_tradeable_amount_base=0.1,
+                max_tradeable_amount_quote=10.0,
+                timestamp=datetime.now(timezone.utc),
+                source="test_forced"
+            )
+            
+            logger.info(f"Forcing test trade with synthetic opportunity: {opportunity}")
+            await self._execute_arbitrage(opportunity)
+
 
     async def _get_total_portfolio_value_usdt(self) -> float:
         total_value = 0.0

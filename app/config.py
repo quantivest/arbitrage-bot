@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     EXCHANGE_API_KEYS: Dict[str, Dict[str, str]] = {}
     
     # Test Mode Default Capitals
-    TEST_MODE_DEFAULT_CAPITAL_USDT: float = 1000.0  # Default $1000 USDT per exchange in test mode
-    TEST_MODE_DEFAULT_CAPITAL_ASSET: float = 10.0     # Default 10 units of each base asset per exchange in test mode
+    TEST_MODE_DEFAULT_CAPITAL_USDT: float = 5000.0  # Increased from 1000.0 to ensure sufficient test capital
+    TEST_MODE_DEFAULT_CAPITAL_ASSET: float = 50.0     # Increased from 10.0 to ensure sufficient test assets
 
     # Bot operational parameters
     SCAN_INTERVAL_SECONDS: float = 1.0  # Interval for scanning arbitrage opportunities
