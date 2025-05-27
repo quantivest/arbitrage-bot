@@ -46,6 +46,7 @@ class ArbitrageBot:
         self.test_simulation_error_message: Optional[str] = None
         self.test_initializing = False  # Flag to track if test initialization is in progress
         self.test_initialization_task = None  # Task reference for the async initialization
+        self.using_mock_data = False  # Flag to track if mock data is being used in test mode
         self.live_total_trades = 0
         self.live_total_profit = 0.0
         self.min_profit_percentage_threshold = settings.MIN_PROFIT_PERCENTAGE_THRESHOLD
@@ -117,7 +118,8 @@ class ArbitrageBot:
             active_since=self.test_simulation_active_since.isoformat() if self.test_simulation_active_since and status_str == "RUNNING" else None,
             total_test_trades=len([t for t in self.trades if t.is_test_trade]),
             total_test_profit=sum(t.profit_quote for t in self.trades if t.is_test_trade),
-            error_message=self.test_simulation_error_message if status_str == "ERROR" else None
+            error_message=self.test_simulation_error_message if status_str == "ERROR" else None,
+            using_mock_data=self.using_mock_data if self.is_actively_simulating_test_mode else False
         )
 
     async def start(self, mode: str, test_settings_data: Optional[Dict] = None) -> Tuple[bool, str]:
@@ -462,9 +464,17 @@ class ArbitrageBot:
                     all_order_books = {}
                 
                 if not all_order_books:
-                    logger.warning(f"No order books fetched (iteration #{iteration_count}). Sleeping.")
-                    await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
-                    continue
+                    if self.is_actively_simulating_test_mode:
+                        logger.info("No order books available. Using mock data for test mode.")
+                        all_order_books = await self._generate_mock_order_books()
+                        self.using_mock_data = True
+                        await self._add_alert(AlertType.SYSTEM_WARNING, "Using mock data for test mode due to API connection issues.", "global", "warning")
+                    else:
+                        logger.warning(f"No order books fetched (iteration #{iteration_count}). Sleeping.")
+                        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                        continue
+                else:
+                    self.using_mock_data = False
 
                 logger.info(f"Finding opportunities for mode: {self.current_mode} (iteration #{iteration_count})")
                 try:
@@ -521,6 +531,53 @@ class ArbitrageBot:
                 # Implement a more robust error handling, e.g., exponential backoff or specific error recovery
                 await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS * 2) # Longer sleep on error
         logger.info(f"Main loop ended after {iteration_count} iterations. Bot running: {self.running}, Mode: {self.current_mode}")
+    async def _generate_mock_order_books(self) -> Dict[str, Dict[str, OrderBook]]:
+        """Generate mock order book data for test mode when API connections fail."""
+        logger.info("Generating mock order book data for test mode")
+        mock_order_books = {}
+        
+        exchanges = list(exchange_manager.exchanges.keys()) if exchange_manager.exchanges else settings.SUPPORTED_EXCHANGES[:2]
+        
+        for exchange_id in exchanges:
+            mock_order_books[exchange_id] = {}
+            
+            for pair in settings.USER_DEFINED_PAIRS:
+                base_currency, quote_currency = pair.split("/")
+                
+                # Generate realistic but slightly different prices for arbitrage opportunities
+                base_price = 100.0  # Simplified base price
+                if "BTC" in pair:
+                    base_price = 45000.0
+                elif "ETH" in pair:
+                    base_price = 3000.0
+                elif "SOL" in pair:
+                    base_price = 100.0
+                
+                price_variation = 1 + (hash(exchange_id) % 100) * 0.001
+                adjusted_price = base_price * price_variation
+                
+                bids = [
+                    OrderBookEntry(price=adjusted_price * 0.999, amount=0.5),
+                    OrderBookEntry(price=adjusted_price * 0.998, amount=1.0),
+                    OrderBookEntry(price=adjusted_price * 0.997, amount=1.5),
+                ]
+                
+                asks = [
+                    OrderBookEntry(price=adjusted_price * 1.001, amount=0.5),
+                    OrderBookEntry(price=adjusted_price * 1.002, amount=1.0),
+                    OrderBookEntry(price=adjusted_price * 1.003, amount=1.5),
+                ]
+                
+                mock_order_books[exchange_id][pair] = OrderBook(
+                    exchange=exchange_id,
+                    symbol=pair,
+                    bids=bids,
+                    asks=asks,
+                    timestamp=datetime.now(timezone.utc)
+                )
+        
+        return mock_order_books
+
 
     async def _find_opportunities(self, all_order_books: Dict[str, Dict[str, OrderBook]]) -> List[ArbitrageOpportunity]:
         opportunities = []

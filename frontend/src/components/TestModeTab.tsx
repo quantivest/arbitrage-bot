@@ -71,34 +71,73 @@ export default function TestModeTab({
   const currentAlerts = useMemo(() => Array.isArray(alerts) ? alerts : [], [alerts]);
 
   useEffect(() => {
-    const savedUsdt = localStorage.getItem(STORAGE_KEY_USDT_CAPITAL);
-    const savedAssetUsd = localStorage.getItem(STORAGE_KEY_ASSET_CAPITAL_USD);
-    const savedBuffer = localStorage.getItem(STORAGE_KEY_BUFFER_PERCENTAGE);
-    const savedExchangesStr = localStorage.getItem(STORAGE_KEY_SELECTED_EXCHANGES);
+    fetch('/api/config/test-mode')
+      .then(response => response.json())
+      .then(data => {
+        const backendUsdtCapital = data.usdt_capital || 5000;
+        const backendAssetCapital = data.asset_capital || 50;
+        const backendBufferPercentage = data.buffer_percentage || 0.01;
+        
+        const savedUsdt = localStorage.getItem(STORAGE_KEY_USDT_CAPITAL);
+        const savedAssetUsd = localStorage.getItem(STORAGE_KEY_ASSET_CAPITAL_USD);
+        const savedBuffer = localStorage.getItem(STORAGE_KEY_BUFFER_PERCENTAGE);
+        const savedExchangesStr = localStorage.getItem(STORAGE_KEY_SELECTED_EXCHANGES);
 
-    if (savedUsdt) setUsdtCapitalPerExchange(Number(savedUsdt));
-    if (savedAssetUsd) setAssetCapitalUsdPerPair(Number(savedAssetUsd));
-    if (savedBuffer) setBufferPercentage(Number(savedBuffer));
-    
-    let initialSelection: string[] = [];
-    if (savedExchangesStr) {
-      try {
-        const parsed = JSON.parse(savedExchangesStr);
-        if (Array.isArray(parsed)) {
-            initialSelection = parsed.filter(ex => currentSupportedExchanges.includes(ex));
+        setUsdtCapitalPerExchange(savedUsdt ? Number(savedUsdt) : backendUsdtCapital);
+        setAssetCapitalUsdPerPair(savedAssetUsd ? Number(savedAssetUsd) : backendAssetCapital);
+        setBufferPercentage(savedBuffer ? Number(savedBuffer) : backendBufferPercentage);
+        
+        let initialSelection: string[] = [];
+        if (savedExchangesStr) {
+          try {
+            const parsed = JSON.parse(savedExchangesStr);
+            if (Array.isArray(parsed)) {
+                initialSelection = parsed.filter(ex => currentSupportedExchanges.includes(ex));
+            }
+          } catch {
+            // JSON parse error, ignore saved, initialSelection remains empty
+          }
         }
-      } catch {
-        // JSON parse error, ignore saved, initialSelection remains empty
-      }
-    }
 
-    if (initialSelection.length >= 2) {
-        setSelectedExchanges(initialSelection);
-    } else if (currentSupportedExchanges.length >= 2) {
-        setSelectedExchanges(currentSupportedExchanges.slice(0, 2));
-    } else {
-        setSelectedExchanges([]); // Fallback if not enough supported or saved are invalid/insufficient
-    }
+        if (initialSelection.length >= 2) {
+            setSelectedExchanges(initialSelection);
+        } else if (currentSupportedExchanges.length >= 2) {
+            setSelectedExchanges(currentSupportedExchanges.slice(0, 2));
+        } else {
+            setSelectedExchanges([]); // Fallback if not enough supported or saved are invalid/insufficient
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching backend configuration:', error);
+        const savedUsdt = localStorage.getItem(STORAGE_KEY_USDT_CAPITAL);
+        const savedAssetUsd = localStorage.getItem(STORAGE_KEY_ASSET_CAPITAL_USD);
+        const savedBuffer = localStorage.getItem(STORAGE_KEY_BUFFER_PERCENTAGE);
+        const savedExchangesStr = localStorage.getItem(STORAGE_KEY_SELECTED_EXCHANGES);
+
+        if (savedUsdt) setUsdtCapitalPerExchange(Number(savedUsdt));
+        if (savedAssetUsd) setAssetCapitalUsdPerPair(Number(savedAssetUsd));
+        if (savedBuffer) setBufferPercentage(Number(savedBuffer));
+        
+        let initialSelection: string[] = [];
+        if (savedExchangesStr) {
+          try {
+            const parsed = JSON.parse(savedExchangesStr);
+            if (Array.isArray(parsed)) {
+                initialSelection = parsed.filter(ex => currentSupportedExchanges.includes(ex));
+            }
+          } catch {
+            // JSON parse error, ignore saved, initialSelection remains empty
+          }
+        }
+
+        if (initialSelection.length >= 2) {
+            setSelectedExchanges(initialSelection);
+        } else if (currentSupportedExchanges.length >= 2) {
+            setSelectedExchanges(currentSupportedExchanges.slice(0, 2));
+        } else {
+            setSelectedExchanges([]); // Fallback if not enough supported or saved are invalid/insufficient
+        }
+      });
   }, [currentSupportedExchanges]); // Depends only on currentSupportedExchanges for initialization logic
 
 
@@ -408,6 +447,11 @@ export default function TestModeTab({
                         {testSimulationStatus?.status === "RUNNING" ? 
                             `Actively scanning ${TARGET_TRADING_PAIRS.length} pairs across ${selectedExchanges.length} exchanges.` : 
                             "Bot is not running. Start test mode to begin scanning."}
+                        {testSimulationStatus?.using_mock_data && (
+                            <div className="mt-2 text-yellow-400">
+                                <strong>Mock Data Mode:</strong> Using simulated market data due to API connection issues.
+                            </div>
+                        )}
                     </AlertDescription>
                     {testSimulationStatus?.status === "RUNNING" && testTrades.length === 0 && (
                         <AlertDescription className="text-xs text-yellow-400 mt-2">
@@ -416,6 +460,9 @@ export default function TestModeTab({
                                 <li>Buffer percentage too high (currently {bufferPercentage.toFixed(4)}%)</li>
                                 <li>Insufficient price differences between exchanges</li>
                                 <li>Market conditions not favorable for arbitrage</li>
+                                {testSimulationStatus?.using_mock_data && (
+                                    <li>Currently using mock data - real API connections may be unavailable</li>
+                                )}
                             </ul>
                         </AlertDescription>
                     )}

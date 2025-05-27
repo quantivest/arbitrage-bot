@@ -122,6 +122,7 @@ export interface TestSimulationStatusPayload {
   total_test_trades: number;
   total_test_profit: number;
   error_message?: string | null;
+  using_mock_data?: boolean;
 }
 
 // Structure for the full payload received via WebSocket initial_status or bot_status_update

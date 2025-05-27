@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import asyncio
 import json
 from datetime import datetime
@@ -351,4 +351,49 @@ async def get_test_simulation_status_api():
     except Exception as e:
         logger.error(f"API: Error fetching test simulation status: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to fetch test simulation status.")
+
+@router.get("/config/test-mode", response_model=Dict[str, Any])
+async def get_test_mode_config_api():
+    """Get test mode configuration values from backend."""
+    try:
+        return {
+            "usdt_capital": settings.TEST_MODE_DEFAULT_CAPITAL_USDT,
+            "asset_capital": settings.TEST_MODE_DEFAULT_CAPITAL_ASSET,
+            "buffer_percentage": settings.BUFFER_PERCENTAGE * 100,  # Convert to percentage for frontend
+            "min_profit_threshold": settings.MIN_PROFIT_PERCENTAGE_THRESHOLD * 100,
+            "supported_exchanges": settings.SUPPORTED_EXCHANGES,
+            "trading_pairs": settings.USER_DEFINED_PAIRS
+        }
+    except Exception as e:
+        logger.error(f"API: Error fetching test mode config: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to fetch test mode configuration.")
+
+@router.post("/exchanges/test-connection", response_model=ActionResponse)
+async def test_exchange_connection_api(credentials: ExchangeCredentials):
+    """Test connection to an exchange without storing credentials."""
+    logger.info(f"API: Testing connection to exchange: {credentials.exchange}")
+    try:
+        temp_success, temp_message = await exchange_manager.connect_exchange(
+            credentials.exchange, 
+            credentials.api_key, 
+            credentials.api_secret, 
+            credentials.additional_params
+        )
+        
+        if temp_success:
+            await exchange_manager.disconnect_exchange(credentials.exchange)
+            return ActionResponse(
+                success=True, 
+                message=f"Successfully tested connection to {credentials.exchange}",
+                data={"exchange": credentials.exchange, "connection_status": "success"}
+            )
+        else:
+            return ActionResponse(
+                success=False, 
+                message=f"Failed to connect to {credentials.exchange}: {temp_message}",
+                data={"exchange": credentials.exchange, "connection_status": "failed", "error": temp_message}
+            )
+    except Exception as e:
+        logger.error(f"API: Error testing exchange connection: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to test connection to {credentials.exchange}.")
 
