@@ -156,6 +156,7 @@ class TestSimulationStatusPayload(BaseModel):
     total_test_trades: int = Field(default=0)
     total_test_profit: float = Field(default=0.0)
     error_message: Optional[str] = Field(default=None)
+    using_mock_data: bool = Field(default=False, description="Indicates if test mode is using mock data due to API connection failures")
 
 class BotStatusPayload(BaseModel):
     """Comprehensive status of the bot, typically sent via WebSocket or API."""
